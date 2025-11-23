@@ -105,9 +105,10 @@ print(f"{'-'*70}\n")
 c_total = aggregate_mlmc_coefficients(
     S0, T, h0, r, cov_mat, vol, max_degree, basket_weights, S_min, S_max
 )
-
+#print("HELLOOOOO")
 print(f"\nTotal coefficients: {c_total}")
 print(f"Non-zero coefficients: {np.sum(np.abs(c_total) > 1e-10)}")
+#print("HELLOOOOO")
 
 # Construct volatility surface
 basis_pairs = generate_polynomial_basis_pairs(max_degree)
@@ -263,7 +264,7 @@ ax6.legend()
 ax6.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('american_basket_option_analysis.png', dpi=150, bbox_inches='tight')
+#plt.savefig('american_basket_option_analysis.png', dpi=150, bbox_inches='tight')
 #print("Saved comprehensive analysis to: american_basket_option_analysis.png")
 plt.show()
 
