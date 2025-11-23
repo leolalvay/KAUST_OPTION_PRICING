@@ -121,6 +121,9 @@ def solve_american_option(
         L_U = apply_pde_operator(U_next, b_current, S_grid, r, dS)
         
         # Backward Euler update at interior points
+        # Positive dt because in time-to-maturity coordinates τ = T - t, 
+        # stepping backwards in calendar time (n+1 → n) 
+        # is a forward step in τ (increasing distance from maturity)
         U_continuation = U_next[1:-1] + dt * L_U[1:-1]
         
         # Enforce early exercise constraint
