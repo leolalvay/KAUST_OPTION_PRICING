@@ -235,7 +235,3 @@ cov_mat = np.ones((d,d))*0.9 + np.eye(d)*0.1  # High correlation
 # Run with K in [225, 237.5, 250, 262.5, 275]
 ```
 **Expected**: ITM puts have high intrinsic, low time value %; OTM opposite
-
----
-
-Want me to create a modified `example_american_basket_pricing.py` file with manual domain control built in so you can immediately see the exercise boundary?
