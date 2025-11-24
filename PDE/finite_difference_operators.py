@@ -17,21 +17,21 @@ def apply_pde_operator(
     b: np.ndarray,
     S_grid: np.ndarray,
     r: float,
-    dS: float
+    dS: float,
+    dt: float = None
 ) -> np.ndarray:
     """
-    Apply the discretised PDE operator L to the value function.
-    
-    Computes L(U) = (1/2)b²∂²U/∂S² + rS∂U/∂S - rU using central differences.
-    
-    The finite difference stencil at interior point i is:
-        L(U_i) = A_i * U_{i-1} - B_i * U_i + C_i * U_{i+1}
-    
-    where:
-        A_i = b²/(2ΔS²) + rS_i/(2ΔS)   (backward contribution)
-        B_i = r + b²/ΔS²                (diagonal term)
-        C_i = b²/(2ΔS²) - rS_i/(2ΔS)   (forward contribution)
-    
+    Apply implicit backward Euler step for the Black-Scholes PDE.
+
+    Solves (I - dt*L) U^n = U^{n+1} for U^n using Thomas algorithm,
+    where L is the spatial operator:
+        L(U) = (1/2)b²S²∂²U/∂S² + rS∂U/∂S - rU
+
+    The finite difference stencil coefficients are:
+        A_i = b²S²/(2ΔS²) + rS_i/(2ΔS)   (lower diagonal)
+        B_i = r + b²S²/ΔS²                (main diagonal)
+        C_i = b²S²/(2ΔS²) - rS_i/(2ΔS)   (upper diagonal)
+
     Parameters
     ----------
     U_next : np.ndarray, shape (N_S,)
@@ -44,39 +44,99 @@ def apply_pde_operator(
         Risk-free interest rate
     dS : float
         Spatial grid spacing
-        
+    dt : float
+        Time step size (required for implicit solve)
+
     Returns
     -------
-    L_U : np.ndarray, shape (N_S,)
-        Result of operator application. Boundary points (0, -1) are set to zero
-        as they are handled separately via boundary conditions.
-        
+    U_current : np.ndarray, shape (N_S,)
+        Solution at current time step. Boundary points preserve input values.
+
     Notes
     -----
-    - This discretisation is consistent with backward Euler timestepping
-    - The operator is applied to U at t_{n+1} to solve for U at t_n
-    - Stability is unconditional for backward Euler with diffusion
+    - Uses Thomas algorithm (O(N)) for tridiagonal solve
+    - Unconditionally stable for any dt
+    - Boundary conditions are Dirichlet (fixed at input values)
     """
     N_S = len(S_grid)
-    L_U = np.zeros_like(U_next)
-    
+
     # Precompute grid-dependent coefficients
-    b_squared = b ** 2
+    # Diffusion coefficient: (1/2) * b² * S² from Black-Scholes PDE
+    diffusion_coeff = (b ** 2) * (S_grid ** 2)
     dS_squared = dS ** 2
-    
-    # Three-point stencil coefficients
-    A = (b_squared / (2 * dS_squared)) + (r * S_grid) / (2 * dS)
-    B = r + (b_squared / dS_squared)
-    C = (b_squared / (2 * dS_squared)) - (r * S_grid) / (2 * dS)
-    
-    # Apply stencil at interior points (boundaries handled externally)
-    L_U[1:-1] = (
-        A[1:-1] * U_next[0:-2] -    # Backward difference contribution
-        B[1:-1] * U_next[1:-1] +     # Diagonal term
-        C[1:-1] * U_next[2:]         # Forward difference contribution
-    )
-    
-    return L_U
+
+    # Three-point stencil coefficients for L
+    alpha = (diffusion_coeff / (2 * dS_squared)) + (r * S_grid) / (2 * dS)  # lower
+    beta = r + (diffusion_coeff / dS_squared)                                # main
+    gamma = (diffusion_coeff / (2 * dS_squared)) - (r * S_grid) / (2 * dS)  # upper
+
+    # Build tridiagonal system (I - dt*L) for interior points
+    # L has: +alpha on lower, -beta on main, +gamma on upper
+    # So (I - dt*L) has: -dt*alpha on lower, 1+dt*beta on main, -dt*gamma on upper
+    n_interior = N_S - 2
+
+    # Diagonals for interior points (indices 1 to N_S-2)
+    lower = -dt * alpha[2:-1]      # coefficients for U_{i-1}, length n_interior-1
+    main = 1 + dt * beta[1:-1]     # coefficients for U_i, length n_interior
+    upper = -dt * gamma[1:-2]      # coefficients for U_{i+1}, length n_interior-1
+
+    # Right-hand side: U_next at interior points
+    rhs = U_next[1:-1].copy()
+
+    # Add boundary contributions to RHS
+    # At i=1: need to add dt*alpha[1]*U_next[0] (boundary term moves to RHS)
+    rhs[0] += dt * alpha[1] * U_next[0]
+    # At i=N_S-2: need to add dt*gamma[N_S-2]*U_next[N_S-1]
+    rhs[-1] += dt * gamma[-2] * U_next[-1]
+
+    # Thomas algorithm (tridiagonal solver)
+    U_interior = thomas_algorithm(lower, main, upper, rhs)
+
+    # Assemble full solution
+    U_current = U_next.copy()
+    U_current[1:-1] = U_interior
+
+    return U_current
+
+
+def thomas_algorithm(lower, main, upper, rhs):
+    """
+    Solve tridiagonal system using Thomas algorithm.
+
+    Solves Ax = d where A is tridiagonal with:
+    - lower: sub-diagonal (length n-1)
+    - main: main diagonal (length n)
+    - upper: super-diagonal (length n-1)
+    - rhs: right-hand side (length n)
+
+    Returns x (length n).
+    """
+    n = len(main)
+
+    # Forward elimination
+    c_prime = np.zeros(n - 1)
+    d_prime = np.zeros(n)
+
+    c_prime[0] = upper[0] / main[0]
+    d_prime[0] = rhs[0] / main[0]
+
+    for i in range(1, n - 1):
+        denom = main[i] - lower[i - 1] * c_prime[i - 1]
+        c_prime[i] = upper[i] / denom
+        d_prime[i] = (rhs[i] - lower[i - 1] * d_prime[i - 1]) / denom
+
+    # Last row
+    denom = main[n - 1] - lower[n - 2] * c_prime[n - 2]
+    d_prime[n - 1] = (rhs[n - 1] - lower[n - 2] * d_prime[n - 2]) / denom
+
+    # Back substitution
+    x = np.zeros(n)
+    x[n - 1] = d_prime[n - 1]
+
+    for i in range(n - 2, -1, -1):
+        x[i] = d_prime[i] - c_prime[i] * x[i + 1]
+
+    return x
 
 
 def compute_payoff(S: np.ndarray, K: float, option_type: str = "put") -> np.ndarray:
