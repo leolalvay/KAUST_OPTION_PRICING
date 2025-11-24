@@ -112,22 +112,16 @@ def solve_american_option(
     # Terminal condition at maturity
     U[-1, :] = payoff_grid
     
-    # Backward timestepping
+    # Backward timestepping (implicit scheme)
     for n in reversed(range(N_timesteps)):
         U_next = U[n + 1, :]                # Value at t_{n+1}
         b_current = b_grid[n, :]            # Volatility at t_n
-        
-        # Apply PDE operator to U_{n+1}
-        L_U = apply_pde_operator(U_next, b_current, S_grid, r, dS)
-        
-        # Backward Euler update at interior points
-        # Positive dt because in time-to-maturity coordinates τ = T - t, 
-        # stepping backwards in calendar time (n+1 → n) 
-        # is a forward step in τ (increasing distance from maturity)
-        U_continuation = U_next[1:-1] + dt * L_U[1:-1]
-        
+
+        # Implicit backward Euler step: solve (I - dt*L) U^n = U^{n+1}
+        U_continuation = apply_pde_operator(U_next, b_current, S_grid, r, dS, dt)
+
         # Enforce early exercise constraint
-        U[n, 1:-1] = np.maximum(U_continuation, payoff_grid[1:-1])
+        U[n, :] = np.maximum(U_continuation, payoff_grid)
     
     # Optional plotting
     if plot:
