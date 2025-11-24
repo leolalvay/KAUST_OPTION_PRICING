@@ -5,13 +5,79 @@
 Finite Difference Operators for American Option PDE Solver (JAX Version)
 
 Implements discretisation schemes for the pricing PDE:
-    ∂U/∂t + (1/2)b²∂²U/∂S² + rS∂U/∂S - rU = 0
+    ∂U/∂t + (1/2)b²S²∂²U/∂S² + rS∂U/∂S - rU = 0
 
-Using central differences in space with backward Euler in time.
+Using central differences in space with implicit backward Euler in time.
 """
 
 import jax.numpy as jnp
 from jax import jit
+import jax.lax as lax
+
+
+@jit
+def thomas_algorithm(lower: jnp.ndarray, main: jnp.ndarray,
+                     upper: jnp.ndarray, rhs: jnp.ndarray) -> jnp.ndarray:
+    """
+    Solve tridiagonal system using Thomas algorithm (JAX JIT-compatible).
+
+    Solves Ax = d where A is tridiagonal with:
+    - lower: sub-diagonal (length n-1)
+    - main: main diagonal (length n)
+    - upper: super-diagonal (length n-1)
+    - rhs: right-hand side (length n)
+
+    Returns x (length n).
+
+    Note: Uses lax.fori_loop for JIT compatibility instead of Python loops.
+    """
+    n = len(main)
+
+    # Forward elimination using lax.scan
+    def forward_step(carry, i):
+        c_prime_prev, d_prime_prev = carry
+        # For i >= 1: compute new c_prime and d_prime
+        denom = main[i] - lower[i - 1] * c_prime_prev
+        c_prime_new = lax.cond(
+            i < n - 1,
+            lambda: upper[i] / denom,
+            lambda: 0.0  # Not used for last element
+        )
+        d_prime_new = (rhs[i] - lower[i - 1] * d_prime_prev) / denom
+        return (c_prime_new, d_prime_new), (c_prime_new, d_prime_new)
+
+    # Initial values for i=0
+    c_prime_0 = upper[0] / main[0]
+    d_prime_0 = rhs[0] / main[0]
+
+    # Run forward elimination for i = 1 to n-1
+    _, (c_primes, d_primes) = lax.scan(
+        forward_step,
+        (c_prime_0, d_prime_0),
+        jnp.arange(1, n)
+    )
+
+    # Combine initial with scanned values
+    c_prime_all = jnp.concatenate([jnp.array([c_prime_0]), c_primes])
+    d_prime_all = jnp.concatenate([jnp.array([d_prime_0]), d_primes])
+
+    # Back substitution using lax.scan (reverse order)
+    def backward_step(x_next, i):
+        # i goes from n-2 down to 0
+        idx = n - 2 - i
+        x_current = d_prime_all[idx] - c_prime_all[idx] * x_next
+        return x_current, x_current
+
+    # Start with last element
+    x_last = d_prime_all[n - 1]
+
+    # Run backward substitution
+    _, x_rest = lax.scan(backward_step, x_last, jnp.arange(n - 1))
+
+    # Combine: x_rest is in reverse order (from x[n-2] to x[0])
+    x = jnp.concatenate([x_rest[::-1], jnp.array([x_last])])
+
+    return x
 
 
 @jit
@@ -20,20 +86,20 @@ def apply_pde_operator(
     b: jnp.ndarray,
     S_grid: jnp.ndarray,
     r: float,
-    dS: float
+    dS: float,
+    dt: float
 ) -> jnp.ndarray:
     """
-    Apply the discretised PDE operator L to the value function.
+    Apply implicit backward Euler step for the Black-Scholes PDE.
 
-    Computes L(U) = (1/2)b²∂²U/∂S² + rS∂U/∂S - rU using central differences.
+    Solves (I - dt*L) U^n = U^{n+1} for U^n using Thomas algorithm,
+    where L is the spatial operator:
+        L(U) = (1/2)b²S²∂²U/∂S² + rS∂U/∂S - rU
 
-    The finite difference stencil at interior point i is:
-        L(U_i) = A_i * U_{i-1} - B_i * U_i + C_i * U_{i+1}
-
-    where:
-        A_i = b²/(2ΔS²) + rS_i/(2ΔS)   (backward contribution)
-        B_i = r + b²/ΔS²                (diagonal term)
-        C_i = b²/(2ΔS²) - rS_i/(2ΔS)   (forward contribution)
+    The finite difference stencil coefficients are:
+        A_i = b²S²/(2ΔS²) + rS_i/(2ΔS)   (lower diagonal)
+        B_i = r + b²S²/ΔS²                (main diagonal)
+        C_i = b²S²/(2ΔS²) - rS_i/(2ΔS)   (upper diagonal)
 
     Parameters
     ----------
@@ -47,40 +113,58 @@ def apply_pde_operator(
         Risk-free interest rate
     dS : float
         Spatial grid spacing
+    dt : float
+        Time step size (required for implicit solve)
 
     Returns
     -------
-    L_U : jnp.ndarray, shape (N_S,)
-        Result of operator application. Boundary points (0, -1) are set to zero
-        as they are handled separately via boundary conditions.
+    U_current : jnp.ndarray, shape (N_S,)
+        Solution at current time step. Boundary points preserve input values.
 
     Notes
     -----
-    - This discretisation is consistent with backward Euler timestepping
-    - The operator is applied to U at t_{n+1} to solve for U at t_n
-    - Stability is unconditional for backward Euler with diffusion
+    - Uses Thomas algorithm (O(N)) for tridiagonal solve
+    - Unconditionally stable for any dt
+    - Boundary conditions are Dirichlet (fixed at input values)
     - JIT compiled for performance
     """
     N_S = len(S_grid)
-    L_U = jnp.zeros_like(U_next)
 
     # Precompute grid-dependent coefficients
-    b_squared = b ** 2
+    # Diffusion coefficient: (1/2) * b² * S² from Black-Scholes PDE
+    diffusion_coeff = (b ** 2) * (S_grid ** 2)
     dS_squared = dS ** 2
 
-    # Three-point stencil coefficients
-    A = (b_squared / (2 * dS_squared)) + (r * S_grid) / (2 * dS)
-    B = r + (b_squared / dS_squared)
-    C = (b_squared / (2 * dS_squared)) - (r * S_grid) / (2 * dS)
+    # Three-point stencil coefficients for L
+    alpha = (diffusion_coeff / (2 * dS_squared)) + (r * S_grid) / (2 * dS)  # lower
+    beta = r + (diffusion_coeff / dS_squared)                                # main
+    gamma = (diffusion_coeff / (2 * dS_squared)) - (r * S_grid) / (2 * dS)  # upper
 
-    # Apply stencil at interior points (boundaries handled externally)
-    L_U = L_U.at[1:-1].set(
-        A[1:-1] * U_next[0:-2] -    # Backward difference contribution
-        B[1:-1] * U_next[1:-1] +     # Diagonal term
-        C[1:-1] * U_next[2:]         # Forward difference contribution
-    )
+    # Build tridiagonal system (I - dt*L) for interior points
+    # L has: +alpha on lower, -beta on main, +gamma on upper
+    # So (I - dt*L) has: -dt*alpha on lower, 1+dt*beta on main, -dt*gamma on upper
 
-    return L_U
+    # Diagonals for interior points (indices 1 to N_S-2)
+    lower = -dt * alpha[2:-1]      # coefficients for U_{i-1}, length n_interior-1
+    main = 1 + dt * beta[1:-1]     # coefficients for U_i, length n_interior
+    upper = -dt * gamma[1:-2]      # coefficients for U_{i+1}, length n_interior-1
+
+    # Right-hand side: U_next at interior points
+    rhs = U_next[1:-1]
+
+    # Add boundary contributions to RHS
+    # At i=1: need to add dt*alpha[1]*U_next[0] (boundary term moves to RHS)
+    # At i=N_S-2: need to add dt*gamma[N_S-2]*U_next[N_S-1]
+    rhs = rhs.at[0].add(dt * alpha[1] * U_next[0])
+    rhs = rhs.at[-1].add(dt * gamma[-2] * U_next[-1])
+
+    # Thomas algorithm (tridiagonal solver)
+    U_interior = thomas_algorithm(lower, main, upper, rhs)
+
+    # Assemble full solution (preserve boundary values)
+    U_current = U_next.at[1:-1].set(U_interior)
+
+    return U_current
 
 
 def compute_payoff(S: jnp.ndarray, K: float, option_type: str = "put") -> jnp.ndarray:

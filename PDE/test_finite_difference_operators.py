@@ -1,11 +1,11 @@
 """
 Unit tests for finite_difference_operators.py
 
-Validates discretisation accuracy against analytical Black-Scholes solutions.
+Validates the implicit backward Euler scheme and payoff calculations.
 """
 
 import numpy as np
-from finite_difference_operators import apply_pde_operator, compute_payoff
+from finite_difference_operators import apply_pde_operator, compute_payoff, thomas_algorithm
 
 
 def test_payoff_put():
@@ -13,9 +13,9 @@ def test_payoff_put():
     S = np.array([80, 90, 100, 110, 120])
     K = 100
     expected = np.array([20, 10, 0, 0, 0])
-    
+
     payoff = compute_payoff(S, K, option_type="put")
-    
+
     assert np.allclose(payoff, expected), f"Expected {expected}, got {payoff}"
     print("✓ Put payoff test passed")
 
@@ -25,99 +25,147 @@ def test_payoff_call():
     S = np.array([80, 90, 100, 110, 120])
     K = 100
     expected = np.array([0, 0, 0, 10, 20])
-    
+
     payoff = compute_payoff(S, K, option_type="call")
-    
+
     assert np.allclose(payoff, expected), f"Expected {expected}, got {payoff}"
     print("✓ Call payoff test passed")
 
 
-def test_pde_operator_structure():
-    """Test that PDE operator has correct structure and boundary behaviour."""
-    N_S = 10
-    S_grid = np.linspace(80, 120, N_S)
-    dS = S_grid[1] - S_grid[0]
-    
-    # Simple test function
-    U_next = S_grid ** 2
-    
-    # Constant volatility and rate
-    b = 0.2 * np.ones(N_S)
-    r = 0.05
-    
-    L_U = apply_pde_operator(U_next, b, S_grid, r, dS)
-    
-    # Check boundaries are zero (handled externally)
-    assert L_U[0] == 0.0, "Left boundary should be zero"
-    assert L_U[-1] == 0.0, "Right boundary should be zero"
-    
-    # Check interior points are non-zero for non-constant U
-    assert np.any(L_U[1:-1] != 0), "Interior points should be non-zero"
-    
-    print("✓ PDE operator structure test passed")
+def test_thomas_algorithm():
+    """Test Thomas algorithm against numpy solve."""
+    n = 10
+
+    # Random tridiagonal system
+    np.random.seed(42)
+    main = 4.0 + np.random.rand(n)  # Diagonally dominant
+    lower = np.random.rand(n - 1)
+    upper = np.random.rand(n - 1)
+    rhs = np.random.rand(n)
+
+    # Solve with Thomas algorithm
+    x_thomas = thomas_algorithm(lower, main, upper, rhs)
+
+    # Build full matrix and solve with numpy
+    A = np.diag(main) + np.diag(lower, -1) + np.diag(upper, 1)
+    x_numpy = np.linalg.solve(A, rhs)
+
+    assert np.allclose(x_thomas, x_numpy, rtol=1e-10), \
+        f"Thomas algorithm mismatch: max diff = {np.max(np.abs(x_thomas - x_numpy))}"
+
+    print("✓ Thomas algorithm test passed")
 
 
-def test_pde_operator_constant_function():
-    """Test that operator applied to constant function gives -rU."""
+def test_implicit_step_preserves_boundaries():
+    """Test that implicit step preserves boundary values."""
     N_S = 20
     S_grid = np.linspace(50, 150, N_S)
     dS = S_grid[1] - S_grid[0]
-    
-    # Constant value function
-    c = 42.0
-    U_next = c * np.ones(N_S)
-    
+    dt = 0.01
+
+    # Initial condition with specific boundary values
+    U_next = np.maximum(100 - S_grid, 0)  # Put payoff
+
     b = 0.2 * np.ones(N_S)
     r = 0.05
-    
-    L_U = apply_pde_operator(U_next, b, S_grid, r, dS)
-    
-    # For constant U: ∂U/∂S = 0, ∂²U/∂S² = 0, so L(U) = -rU
-    expected = -r * U_next
-    
-    # Interior points should match
-    assert np.allclose(L_U[1:-1], expected[1:-1], rtol=1e-10), \
-        "Constant function should give -rU"
-    
-    print("✓ Constant function test passed")
+
+    U_current = apply_pde_operator(U_next, b, S_grid, r, dS, dt)
+
+    # Boundary values should be preserved
+    assert U_current[0] == U_next[0], "Left boundary should be preserved"
+    assert U_current[-1] == U_next[-1], "Right boundary should be preserved"
+
+    print("✓ Boundary preservation test passed")
 
 
-def test_linear_function_drift_term():
-    """Test that linear function correctly captures drift term rS∂U/∂S."""
+def test_implicit_step_stability():
+    """Test that implicit scheme is stable even with large dt."""
     N_S = 50
-    S_grid = np.linspace(80, 120, N_S)
+    S_grid = np.linspace(50, 150, N_S)
     dS = S_grid[1] - S_grid[0]
-    
-    # Linear function U = S (like a forward)
-    U_next = S_grid.copy()
-    
+
+    # Use very large dt that would be unstable for explicit scheme
+    dt = 1.0  # Much larger than explicit stability limit
+
+    U_next = np.maximum(100 - S_grid, 0)  # Put payoff
+    b = 0.3 * np.ones(N_S)  # High volatility
+    r = 0.05
+
+    U_current = apply_pde_operator(U_next, b, S_grid, r, dS, dt)
+
+    # Solution should remain bounded (no explosion)
+    assert np.all(np.isfinite(U_current)), "Solution should be finite"
+    assert np.all(U_current >= -1e-10), "Solution should be non-negative (within tolerance)"
+    assert np.max(U_current) < 1000, "Solution should not explode"
+
+    print("✓ Implicit stability test passed")
+
+
+def test_implicit_step_convergence():
+    """Test that implicit scheme converges as dt -> 0."""
+    N_S = 100
+    S_grid = np.linspace(50, 150, N_S)
+    dS = S_grid[1] - S_grid[0]
+
+    U_next = np.maximum(100 - S_grid, 0)  # Put payoff
     b = 0.2 * np.ones(N_S)
     r = 0.05
-    
-    L_U = apply_pde_operator(U_next, b, S_grid, r, dS)
-    
-    # For U = S: ∂U/∂S = 1, ∂²U/∂S² = 0
-    # So L(U) = rS * 1 - rS = 0
-    expected = np.zeros_like(U_next)
-    
-    # Interior points should be close to zero (up to discretisation error)
-    # Expect O(dS²) truncation error from central differences
-    assert np.allclose(L_U[1:-1], expected[1:-1], atol=1e-6), \
-        "Linear function should give near-zero result"
-    
-    print("✓ Linear function drift test passed")
+
+    # Solve with different dt values
+    dt_values = [0.1, 0.01, 0.001]
+    solutions = []
+
+    for dt in dt_values:
+        U_current = apply_pde_operator(U_next, b, S_grid, r, dS, dt)
+        solutions.append(U_current.copy())
+
+    # Check convergence: differences should decrease
+    diff1 = np.max(np.abs(solutions[1] - solutions[0]))
+    diff2 = np.max(np.abs(solutions[2] - solutions[1]))
+
+    assert diff2 < diff1, f"Solution should converge: diff1={diff1:.6f}, diff2={diff2:.6f}"
+
+    print("✓ Implicit convergence test passed")
+
+
+def test_volatility_sensitivity():
+    """Test that solution is sensitive to volatility (the original bug check)."""
+    N_S = 50
+    S_grid = np.linspace(50, 150, N_S)
+    dS = S_grid[1] - S_grid[0]
+    dt = 0.01
+
+    U_next = np.maximum(100 - S_grid, 0)  # Put payoff
+    r = 0.05
+
+    # Low volatility
+    b_low = 0.1 * np.ones(N_S)
+    U_low = apply_pde_operator(U_next, b_low, S_grid, r, dS, dt)
+
+    # High volatility
+    b_high = 0.4 * np.ones(N_S)
+    U_high = apply_pde_operator(U_next, b_high, S_grid, r, dS, dt)
+
+    # Solutions should be different (not identical like the old bug)
+    diff = np.max(np.abs(U_high - U_low))
+    assert diff > 0.01, f"Solutions should differ with volatility: max diff = {diff}"
+
+    print(f"✓ Volatility sensitivity test passed (max diff = {diff:.4f})")
 
 
 def run_all_tests():
     """Run all unit tests."""
     print("\nRunning finite difference operator tests...\n")
-    
+
     test_payoff_put()
     test_payoff_call()
-    test_pde_operator_structure()
-    test_pde_operator_constant_function()
-    
-    print("\n✓ All tests passed!\n")
+    test_thomas_algorithm()
+    test_implicit_step_preserves_boundaries()
+    test_implicit_step_stability()
+    test_implicit_step_convergence()
+    test_volatility_sensitivity()
+
+    print("\n✅ All finite difference operator tests passed!\n")
 
 
 if __name__ == "__main__":

@@ -2,14 +2,14 @@
 # JAX version with plotting conversions
 
 """
-American Option PDE Solver using Backward Euler (JAX Version)
+American Option PDE Solver using Implicit Backward Euler (JAX Version)
 
 Solves the pricing PDE with early exercise constraint:
-    ∂U/∂t + (1/2)b²∂²U/∂S² + rS∂U/∂S - rU = 0
+    ∂U/∂t + (1/2)b²S²∂²U/∂S² + rS∂U/∂S - rU = 0
     U(t, S) ≥ g(S)  for all t (early exercise)
 
-Uses backward Euler timestepping with projected volatility b(t, S)
-from Markovian projection.
+Uses implicit backward Euler timestepping with projected volatility b(t, S)
+from Markovian projection. The implicit scheme is unconditionally stable.
 """
 
 import jax.numpy as jnp
@@ -114,19 +114,16 @@ def solve_american_option(
     # Terminal condition at maturity
     U = U.at[-1, :].set(payoff_grid)
 
-    # Backward timestepping
+    # Backward timestepping (implicit scheme)
     for n in reversed(range(N_timesteps)):
         U_next = U[n + 1, :]                # Value at t_{n+1}
         b_current = b_grid[n, :]            # Volatility at t_n
 
-        # Apply PDE operator to U_{n+1}
-        L_U = apply_pde_operator(U_next, b_current, S_grid, r, dS)
-
-        # Backward Euler update at interior points
-        U_continuation = U_next[1:-1] + dt * L_U[1:-1]
+        # Implicit backward Euler step: solve (I - dt*L) U^n = U^{n+1}
+        U_continuation = apply_pde_operator(U_next, b_current, S_grid, r, dS, dt)
 
         # Enforce early exercise constraint
-        U = U.at[n, 1:-1].set(jnp.maximum(U_continuation, payoff_grid[1:-1]))
+        U = U.at[n, :].set(jnp.maximum(U_continuation, payoff_grid))
 
     # Optional plotting
     if plot:

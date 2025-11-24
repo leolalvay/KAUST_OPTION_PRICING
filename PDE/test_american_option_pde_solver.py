@@ -206,7 +206,7 @@ def test_exercise_boundary_extraction():
     )
     
     t_boundary, S_boundary = compute_exercise_boundary(
-        t_grid, S_grid, U, payoff_grid, tolerance=1e-4
+        t_grid, S_grid, U, payoff_grid, absolute_threshold=0.5
     )
     
     # Check that boundary exists
