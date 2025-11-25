@@ -101,6 +101,8 @@ def apply_pde_operator(
         B_i = r + b²S²/ΔS²                (main diagonal)
         C_i = b²S²/(2ΔS²) - rS_i/(2ΔS)   (upper diagonal)
 
+    Note: These coefficients are sometimes denoted α, β, γ in numerical analysis literature.
+
     Parameters
     ----------
     U_next : jnp.ndarray, shape (N_S,)
@@ -136,27 +138,27 @@ def apply_pde_operator(
     dS_squared = dS ** 2
 
     # Three-point stencil coefficients for L
-    alpha = (diffusion_coeff / (2 * dS_squared)) + (r * S_grid) / (2 * dS)  # lower
-    beta = r + (diffusion_coeff / dS_squared)                                # main
-    gamma = (diffusion_coeff / (2 * dS_squared)) - (r * S_grid) / (2 * dS)  # upper
+    A = (diffusion_coeff / (2 * dS_squared)) + (r * S_grid) / (2 * dS)  # lower
+    B = r + (diffusion_coeff / dS_squared)                                # main
+    C = (diffusion_coeff / (2 * dS_squared)) - (r * S_grid) / (2 * dS)  # upper
 
     # Build tridiagonal system (I - dt*L) for interior points
-    # L has: +alpha on lower, -beta on main, +gamma on upper
-    # So (I - dt*L) has: -dt*alpha on lower, 1+dt*beta on main, -dt*gamma on upper
+    # L has: +A on lower, -B on main, +C on upper
+    # So (I - dt*L) has: -dt*A on lower, 1+dt*B on main, -dt*C on upper
 
     # Diagonals for interior points (indices 1 to N_S-2)
-    lower = -dt * alpha[2:-1]      # coefficients for U_{i-1}, length n_interior-1
-    main = 1 + dt * beta[1:-1]     # coefficients for U_i, length n_interior
-    upper = -dt * gamma[1:-2]      # coefficients for U_{i+1}, length n_interior-1
+    lower = -dt * A[2:-1]      # coefficients for U_{i-1}, length n_interior-1
+    main = 1 + dt * B[1:-1]     # coefficients for U_i, length n_interior
+    upper = -dt * C[1:-2]      # coefficients for U_{i+1}, length n_interior-1
 
     # Right-hand side: U_next at interior points
     rhs = U_next[1:-1]
 
     # Add boundary contributions to RHS
-    # At i=1: need to add dt*alpha[1]*U_next[0] (boundary term moves to RHS)
-    # At i=N_S-2: need to add dt*gamma[N_S-2]*U_next[N_S-1]
-    rhs = rhs.at[0].add(dt * alpha[1] * U_next[0])
-    rhs = rhs.at[-1].add(dt * gamma[-2] * U_next[-1])
+    # At i=1: need to add dt*A[1]*U_next[0] (boundary term moves to RHS)
+    # At i=N_S-2: need to add dt*C[N_S-2]*U_next[N_S-1]
+    rhs = rhs.at[0].add(dt * A[1] * U_next[0])
+    rhs = rhs.at[-1].add(dt * C[-2] * U_next[-1])
 
     # Thomas algorithm (tridiagonal solver)
     U_interior = thomas_algorithm(lower, main, upper, rhs)
