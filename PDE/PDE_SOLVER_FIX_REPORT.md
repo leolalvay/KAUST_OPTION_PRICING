@@ -11,13 +11,43 @@ This report documents the debugging and fixing of the American basket option PDE
 
 ## Bug 1: Missing S² in Diffusion Term
 
+### Reminder of the Terms of the Black-Scholes PDE
+
+The Black-Scholes PDE for option pricing is:
+
+$$\frac{\partial V}{\partial t} + \frac{1}{2}\sigma^2 S^2 \frac{\partial^2 V}{\partial S^2} + rS\frac{\partial V}{\partial S} - rV = 0$$
+
+Each term has a distinct financial and physical interpretation:
+
+### 1. Time Decay Term (Theta)
+$$\frac{\partial V}{\partial t}$$
+
+Represents how the option value changes with the passage of time. This is typically negative for long options due to time decay eroding value as expiration approaches.
+
+### 2. Diffusion Term (Gamma Effect)
+$$\frac{1}{2}\sigma^2 S^2 \frac{\partial^2 V}{\partial S^2}$$
+
+Represents the volatility or randomness in the stock price evolution. The $S^2$ factor is crucial—it ensures that diffusion scales with the stock price itself (larger stock prices have proportionally larger absolute price movements). The second derivative $\partial^2 V/\partial S^2$ is known as **gamma** in finance, measuring the convexity of the option value.
+
+### 3. Drift Term (Delta Contribution)
+$$rS\frac{\partial V}{\partial S}$$
+
+Represents the deterministic growth of the stock price under the risk-neutral measure. The risk-free rate $r$ indicates the expected growth rate, whilst the $S$ factor ensures this growth is proportional to the current stock price (exponential growth behaviour). The first derivative $\partial V/\partial S$ is known as **delta** in finance, measuring the sensitivity of option value to stock price changes.
+
+### 4. Discount Term
+$$-rV$$
+
+Represents the continuous discounting of the option value at the risk-free rate. This accounts for the time value of money—future payoffs must be discounted back to present value.
+
+---
+
 ### The Problem
 
 The Black-Scholes PDE for option pricing is:
 
 $$\frac{\partial V}{\partial t} + \frac{1}{2}\sigma^2 S^2 \frac{\partial^2 V}{\partial S^2} + rS\frac{\partial V}{\partial S} - rV = 0$$
 
-The original code in `finite_difference_operators.py` implemented the finite difference coefficients as:
+The original code in `finite_difference_operators.py` (or Amelie's `utils.py`) implemented the finite difference coefficients as:
 
 ```python
 # INCORRECT - missing S²
@@ -39,7 +69,7 @@ The bug was subtle because:
 1. The drift term `rS/(2ΔS)` dominated the coefficients (≈1.03 at S=250)
 2. The incorrect diffusion term `b²/(2ΔS²)` was tiny (≈0.00007 at b=0.07)
 3. The solver still produced "reasonable-looking" option values
-4. Different volatility inputs produced nearly identical outputs (the symptom we observed)
+4. Different volatility inputs produced nearly identical outputs (the problem I observed that led to me finding this)
 
 ### The Fix
 
@@ -62,7 +92,7 @@ After fixing the S² issue, the explicit Euler scheme became numerically unstabl
 | Volatility | N_timesteps=200 | N_timesteps=5000 |
 |------------|-----------------|------------------|
 | Low (7%)   | $14.37 ✓       | $14.37 ✓        |
-| High (14%) | **$1.2×10⁶⁰** ✗ | $20.06 ✓        |
+| High (14%) | **$1.2×10⁶⁰** ✗ (just slightly higher than expected) | $20.06 ✓        |
 
 The high volatility case **explodes** to astronomical values with the original 200 timesteps!
 
