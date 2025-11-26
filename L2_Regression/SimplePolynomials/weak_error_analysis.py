@@ -304,15 +304,22 @@ def plot_weakerror(b_bar, x0, P1, vol, cov_mat, r, dt, N_t, M_samples):
     df["std"] = np.repeat(we_std, trials)
     df.to_csv("weak_errors_by_M.csv", index=False)
     print("\nResults saved to 'weak_errors_by_M.csv'")
+
     
     # Plot results
     for i, M in enumerate(M_samples):
         plt.scatter([M] * trials, weak_errors[i, :], alpha=0.6, color='C1')
-    
+
     plt.errorbar(M_samples, we_mean, yerr=we_std, fmt='-o', 
                 color='blue', capsize=4, label='Mean ± Std')
     plt.xscale('log')
-    plt.xlabel('Sample Paths $M$')
+
+    # Custom x-axis formatting: show as powers of 2 with ×10³
+    ax = plt.gca()
+    ax.set_xticks(M_samples)
+    ax.set_xticklabels(['2', '4', '8', '16', '32', '64'])
+    plt.xlabel(r'Sample Paths $M$ ($\times 10^3$)')
+
     plt.ylabel(r'Weak error $|u_{E}-\bar{u}_{E}| / |u_{E}|$')
     plt.title(r'Weak Error vs Sample Size (fixed regression basis)')
     plt.legend()
