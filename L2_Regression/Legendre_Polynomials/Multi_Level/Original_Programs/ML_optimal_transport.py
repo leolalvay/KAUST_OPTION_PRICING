@@ -484,9 +484,9 @@ def mlmc_l_OT(x0, T, h0, l, r, cov_mat, vol, max_deg, P1, s_min0, s_max0, C=80):
     est_paths_c = apply_maps(reducedpaths_f, maps, input_logpaths=False)
     
     # Construct regression system (using estimated coarse paths!)
-    D, psi = normaleq_components_ML(reducedpaths_f, est_paths_c, P1, pairs, 
-                                     cov_mat, vol, s_min0, s_max0, T, 
-                                     pathsf_red=True)
+    D, psi = normaleq_components_ML(reducedpaths_f, est_paths_c, P1, pairs,
+                                     cov_mat, vol, s_min0, s_max0, T,
+                                     pathsf_are_reduced=True)
     
     # Solve for coefficients
     c = fit_local_vol(D, psi)

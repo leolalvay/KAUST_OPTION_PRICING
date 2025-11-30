@@ -270,9 +270,11 @@ if __name__ == "__main__":
     print("Creating convergence plot...")
     print(f"{'-'*70}\n")
     
-    fig, ax = plot_weak_error_convergence(M_samples, weak_errors_dict, 
+    import os
+    os.makedirs("plots/WeakError", exist_ok=True)
+    fig, ax = plot_weak_error_convergence(M_samples, weak_errors_dict,
                                           max_deg_test,
-                                          save_path="ML_WeakErrors.pdf")
+                                          save_path="plots/WeakError/ML_WeakErrors.pdf")
     
     plt.show()
     
