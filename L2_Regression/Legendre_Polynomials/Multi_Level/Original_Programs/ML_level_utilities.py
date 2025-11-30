@@ -13,12 +13,35 @@ telescoping sum instead of just b².
 """
 
 import numpy as np
-from numpy.polynomial.legendre import legval
+from numpy.polynomial.legendre import legval, legvander
 
-# Import from Single-Level (these are identical)
-import sys
-sys.path.append('../Single_Level')
-from SL_legendre_utilities import GBM_paths, tot_degree_poly
+
+# Note: GBM_paths and tot_degree_poly are identical to Single-Level versions.
+# In production, import from SL_legendre_utilities.py
+# For standalone testing, we define minimal versions here:
+
+def GBM_paths(x0, r, vol, cov_mat, dt, N_t, M_t):
+    """Generate GBM paths - minimal version for testing."""
+    import math
+    G = np.linalg.cholesky(cov_mat)
+    sqrtdt = math.sqrt(dt)
+    d = len(vol)
+    X = np.tile(x0.flatten(), (M_t, 1))
+    paths = np.empty((M_t, N_t, d))
+    paths[:, 0, :] = X
+    for n in range(1, N_t):
+        Z = np.random.randn(M_t, d)
+        sigma = X * vol
+        dW = Z @ G.T
+        X = X + r * X * dt + sigma * dW * sqrtdt
+        paths[:, n, :] = X
+    return paths
+
+
+def tot_degree_poly(maxdeg=3):
+    """Generate polynomial basis pairs - minimal version for testing."""
+    return [(i, j) for i in range(maxdeg + 1) for j in range(maxdeg + 1) 
+            if (i + j <= maxdeg)]
 
 
 def normaleq_components_ML(paths_f, paths_c, P1, pairs, cov_mat, vol, s_min, 
