@@ -13,6 +13,7 @@ telescoping sum instead of just b².
 """
 
 import numpy as np
+import math
 from numpy.polynomial.legendre import legval, legvander
 
 
@@ -22,7 +23,6 @@ from numpy.polynomial.legendre import legval, legvander
 
 def GBM_paths(x0, r, vol, cov_mat, dt, N_t, M_t):
     """Generate GBM paths - minimal version for testing."""
-    import math
     G = np.linalg.cholesky(cov_mat)
     sqrtdt = math.sqrt(dt)
     d = len(vol)
@@ -59,64 +59,68 @@ def normaleq_components_ML(paths_f, paths_c, P1, pairs, cov_mat, vol, s_min,
     Parameters
     ----------
     paths_f : ndarray, shape (M_t, N_f, d)
-        Fine timestep paths (or already reduced if pathsf_are_reduced=True)
+        Fine paths (timestep h_fine)
     paths_c : ndarray, shape (M_t, N_c, d)
-        Coarse timestep paths (coupled with fine paths)
+        Coarse paths (timestep h_coarse = 2*h_fine)
     P1 : ndarray, shape (d,)
         Basket weights
     pairs : list of tuple
-        Polynomial basis pairs from tot_degree_poly()
+        Polynomial basis pairs (i1, i2) with i1 + i2 <= max_deg
     cov_mat : ndarray, shape (d, d)
-        Asset correlation matrix
+        Correlation matrix
     vol : ndarray, shape (d,)
         Asset volatilities
     s_min, s_max : float
-        Domain bounds for spatial scaling to [-1, 1]
+        Domain bounds for Legendre scaling
     T : float
-        Maturity time for temporal scaling to [-1, 1]
+        Maturity time
     pathsf_are_reduced : bool, optional
-        If True, paths_f are already sampled at coarse time intervals
-        (default: False, will subsample every other point)
+        If True, paths_f are already subsampled at coarse timesteps
+        (default: False)
         
     Returns
     -------
     D : ndarray, shape (M_t * N_c, P)
-        Design matrix with Legendre polynomials
+        Design matrix
     psi : ndarray, shape (M_t * N_c, 1)
-        Target volatility differences b_fine² - b_coarse²
+        Target vector (b_fine² - b_coarse²)
         
     Notes
     -----
-    - Fine paths are subsampled to coarse timesteps (every other point)
-    - Legendre polynomials are orthonormalised on [-1, 1]
-    - Basket volatility: b² = (1/d²) * Σᵢⱼ σᵢ σⱼ Xᵢ Xⱼ ρᵢⱼ
-    - For level l=0, paths_c should be zeros (no coarser level exists)
+    The design matrix is evaluated at coarse timesteps (N_c points) using
+    fine path values subsampled at those times. This ensures both fine and
+    coarse volatilities are computed at the same spatial locations.
+    
+    Physics analogy: Like computing perturbative corrections where you
+    evaluate both the full and approximate Hamiltonians at the same points.
     """
-    M_t, N_c, d = paths_c.shape
+    M_t, N_f, d = paths_f.shape
+    N_c = paths_c.shape[1]
     P = len(pairs)
-    print(f"Basis pairs: {pairs}")
     
-    # Construct design matrix using fine paths at coarse time intervals
-    t = np.linspace(0, T, N_c)
-    t_scal = 2 * t / T - 1  # Map [0, T] → [-1, 1]
-    t_vals = np.tile(t_scal, M_t)
-    
-    # Subsample fine paths to coarse time intervals if needed
-    if not pathsf_are_reduced:
-        reducedpaths_f = paths_f[:, ::2, :]  # Every other timestep
-    else:
+    # Subsample fine paths at coarse timesteps (every 2nd point)
+    if pathsf_are_reduced:
         reducedpaths_f = paths_f
+    else:
+        reducedpaths_f = paths_f[:, ::2, :]
     
-    # Compute basket values and scale to [-1, 1]
-    s_vals = reducedpaths_f.dot(P1).flatten()
-    s_vals = 2 * (s_vals - s_min) / (s_max - s_min) - 1
+    # Time grid at coarse resolution
+    t = np.linspace(0, T, N_c)
     
-    # Build Vandermonde matrices for Legendre polynomials
-    degree = max(i for i, _ in pairs)
-    from numpy.polynomial.legendre import legvander
+    # Basket values for scaling
+    basket_f = reducedpaths_f.dot(P1)
     
-    VT = legvander(t_vals, degree)  # Time polynomials
-    VS = legvander(s_vals, degree)  # Space polynomials
+    # Scale to [-1, 1] for Legendre polynomials
+    t_vals = np.tile(t, M_t)
+    s_vals = basket_f.flatten()
+    
+    t_c = 2 * t_vals / T - 1
+    s_c = 2 * (s_vals - s_min) / (s_max - s_min) - 1
+    
+    # Compute Legendre basis (Vandermonde-style)
+    degree = max(max(p) for p in pairs)
+    VT = legvander(t_c, degree)
+    VS = legvander(s_c, degree)
     
     # Orthonormalisation factor: sqrt((2n+1)/2)
     norm = np.sqrt((2 * np.arange(degree + 1) + 1) / 2)
@@ -228,17 +232,33 @@ def make_b_bar(c, pairs, s_min, s_max, T, max_deg):
         
     Notes
     -----
-    - Checks for negative h = Σ cₚ Pₚ before taking sqrt
-    - Prints warning with location if negative values found
-    - Returns sqrt(h), which may be NaN if h < 0
+    This version includes two safety mechanisms to prevent NaN values:
     
-    Physics analogy: Like constructing effective potential from expansion
-    coefficients in quantum mechanics.
+    1. Domain Clamping (Fix 1): Values of S outside [s_min, s_max] are
+       clamped to the boundary. This prevents polynomial extrapolation
+       which can cause wild oscillations and negative values.
+       
+    2. Non-Negative Enforcement (Fix 2): After computing h = Σ cₚ Pₚ,
+       negative values are floored to zero before taking sqrt. This
+       handles cases where MLMC coefficient cancellation creates
+       negative regions even within the fitted domain.
+    
+    Physics analogy: Like an EFT with a validity cutoff. Outside the
+    fitted domain, we use boundary values rather than extrapolating
+    into a regime where the effective description breaks down.
     """
     def b_bar(t, S):
+        # ====================================================================
+        # FIX 1: Domain Clamping
+        # Prevent extrapolation outside the fitted region [s_min, s_max].
+        # Legendre polynomials are orthogonal on [-1, 1] and can explode
+        # outside this domain, leading to negative h values.
+        # ====================================================================
+        S_clamped = np.clip(S, s_min, s_max)
+        
         # Scale to [-1, 1]
         t_c = 2 * t / T - 1
-        s_c = 2 * (S - s_min) / (s_max - s_min) - 1
+        s_c = 2 * (S_clamped - s_min) / (s_max - s_min) - 1
         
         # Evaluate polynomial expansion
         h = 0.0
@@ -250,16 +270,64 @@ def make_b_bar(c, pairs, s_min, s_max, T, max_deg):
             P_s = legval(s_c, [0] * i2 + [1]) * norm[i2]
             h += c[p] * P_t * P_s
         
-        # Check for negative values (volatility must be positive!)
-        if np.any(h < 0):
-            # Find first offending index
-            idx = np.unravel_index(np.argmin(h), h.shape)
-            bad_t = np.array(t)[idx] if np.ndim(t) > 0 else t
-            bad_S = np.array(S)[idx] if np.ndim(S) > 0 else S
-            bad_h = h[idx]
-            print(f"Warning: Negative h = {bad_h:.6e} at t = {bad_t:.4f}, "
-                  f"S = {bad_S:.4f}")
+        # ====================================================================
+        # FIX 2: Non-Negative Enforcement
+        # MLMC telescoping sums can create negative regions even within the
+        # domain due to coefficient cancellation. Floor h to zero to prevent
+        # sqrt of negative numbers.
+        # ====================================================================
+        h_array = np.atleast_1d(h)
+        n_negative = np.sum(h_array < 0)
         
-        return np.sqrt(h)
+        if n_negative > 0:
+            neg_fraction = n_negative / h_array.size
+            # Only warn if a significant fraction is negative (> 1%)
+            if neg_fraction > 0.01:
+                min_h = np.min(h_array)
+                print(f"Warning: {neg_fraction*100:.1f}% of h values negative "
+                      f"(min = {min_h:.4e}), clamping to zero")
+        
+        # Floor at zero to prevent NaN from sqrt
+        h_safe = np.maximum(h, 0.0)
+        
+        return np.sqrt(h_safe)
     
     return b_bar
+
+
+# ============================================================================
+# Testing / Example Usage
+# ============================================================================
+
+if __name__ == "__main__":
+    print("ML_level_utilities.py - Multi-Level utilities for Markovian projection")
+    print("=" * 70)
+    
+    # Quick sanity check of the fixes
+    print("\nTesting make_b_bar with domain clamping and non-negative enforcement...")
+    
+    # Create a simple test case
+    pairs = tot_degree_poly(2)  # 6 basis functions
+    c = np.array([1.0, 0.1, -0.05, 0.02, -0.01, 0.005])  # Example coefficients
+    s_min, s_max = 200.0, 300.0
+    T = 1.0
+    max_deg = 2
+    
+    b_bar = make_b_bar(c, pairs, s_min, s_max, T, max_deg)
+    
+    # Test within domain
+    S_in = np.array([220.0, 250.0, 280.0])
+    b_in = b_bar(0.5, S_in)
+    print(f"  Within domain S = {S_in}: b_bar = {b_in}")
+    
+    # Test outside domain (should be clamped)
+    S_out = np.array([150.0, 350.0])
+    b_out = b_bar(0.5, S_out)
+    print(f"  Outside domain S = {S_out}: b_bar = {b_out} (clamped)")
+    
+    # Verify no NaN values
+    assert not np.any(np.isnan(b_in)), "NaN detected within domain!"
+    assert not np.any(np.isnan(b_out)), "NaN detected outside domain!"
+    
+    print("\n✅ All tests passed - no NaN values produced")
+    print("=" * 70)
