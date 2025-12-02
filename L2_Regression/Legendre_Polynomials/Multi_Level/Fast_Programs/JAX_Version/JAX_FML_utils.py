@@ -190,7 +190,7 @@ def tot_degree_poly(maxdeg: int = 3) -> List[Tuple[int, int]]:
 # Legendre Polynomial Evaluation (JIT-compiled)
 # =============================================================================
 
-@jax.jit
+@partial(jax.jit, static_argnums=(1,))
 def legendre_basis_1d(x: jax.Array, degree: int) -> jax.Array:
     """
     Evaluate 1D Legendre polynomials up to given degree.
@@ -202,12 +202,18 @@ def legendre_basis_1d(x: jax.Array, degree: int) -> jax.Array:
     x : jax.Array, shape (N,)
         Points in [-1, 1]
     degree : int
-        Maximum polynomial degree
+        Maximum polynomial degree (STATIC - determines output shape)
         
     Returns
     -------
     P : jax.Array, shape (N, degree+1)
         Legendre polynomial values P_0(x), P_1(x), ..., P_degree(x)
+        
+    Notes
+    -----
+    The `degree` parameter must be static (known at compile time) because
+    it determines the output array shape. JAX will compile a separate
+    kernel for each unique degree value.
     """
     N = x.shape[0]
     
@@ -628,7 +634,7 @@ if __name__ == "__main__":
     t_test = jnp.array([0.5])
     S_test = jnp.array([250.0])
     b_val = bbar(t_test, S_test)
-    print(f"  bbar(0.5, 250) = {float(b_val):.4f}")
+    print(f"  bbar(0.5, 250) = {float(b_val[0]):.4f}")
     
     print("\n" + "=" * 60)
     print("All tests passed!")
