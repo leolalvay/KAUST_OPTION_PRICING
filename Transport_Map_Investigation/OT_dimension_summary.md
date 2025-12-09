@@ -27,10 +27,12 @@ $$T(\mathbf{x}) = \boldsymbol{\mu}_c + A(\mathbf{x} - \boldsymbol{\mu}_f)$$
 $$A = C_f^{-1/2} \left( C_f^{1/2} C_c C_f^{1/2} \right)^{1/2} C_f^{-1/2} \in \mathbb{R}^{d \times d}$$
 
 Computed via eigendecomposition:
-1. C_f = U_f Λ_f U_f^T → C_f^{1/2} = U_f Λ_f^{1/2} U_f^T
-2. M = C_f^{1/2} C_c C_f^{1/2} (symmetric positive definite)
-3. M = U_M Λ_M U_M^T → M^{1/2} = U_M Λ_M^{1/2} U_M^T
-4. A = C_f^{-1/2} M^{1/2} C_f^{-1/2}
+$$\begin{align}
+C_f &= U_f \Lambda_f U_f^T \quad \Rightarrow \quad C_f^{1/2} = U_f \Lambda_f^{1/2} U_f^T \\
+M &= C_f^{1/2} C_c C_f^{1/2} \quad \text{(symmetric positive definite)} \\
+M &= U_M \Lambda_M U_M^T \quad \Rightarrow \quad M^{1/2} = U_M \Lambda_M^{1/2} U_M^T \\
+A &= C_f^{-1/2} M^{1/2} C_f^{-1/2}
+\end{align}$$
 
 ---
 
