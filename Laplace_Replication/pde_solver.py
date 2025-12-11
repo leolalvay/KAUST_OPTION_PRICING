@@ -9,7 +9,7 @@ import numpy as np
 from scipy.linalg import solve_banded
 
 
-def solve_american_option_pde(vol_func, r, K, T, s_min, s_max, 
+def solve_american_option_pde(b_squared_func, r, K, T, s_min, s_max, 
                                N_t=200, N_s=100, option_type='put'):
     """
     Solve 1D American option PDE using backward Euler.
@@ -22,8 +22,9 @@ def solve_american_option_pde(vol_func, r, K, T, s_min, s_max,
     
     Parameters
     ----------
-    vol_func : callable
-        Function vol_func(t, s) returning projected volatility b̄(t,s)
+    b_squared_func : callable
+        Function b_squared_func(t, s) returning projected volatility SQUARED b̄²(t,s)
+        NOT the volatility b̄(t,s). This is the diffusion coefficient in the PDE.
     r : float
         Risk-free rate
     K : float
@@ -68,27 +69,23 @@ def solve_american_option_pde(vol_func, r, K, T, s_min, s_max,
     for n in range(N_t - 1, -1, -1):
         t = t_grid[n]
         
-        # Build tridiagonal system for implicit Euler
-        # (I - dt * L) V^n = V^{n+1}
-        
-        # Get volatility at this time
-        vol = np.array([vol_func(t, s) for s in s_grid])
-        vol_sq = vol**2
+        # Get b̄² at this time (already squared!)
+        b_sq = np.array([b_squared_func(t, s) for s in s_grid])
         
         # Coefficients (Equation in Section 3.2)
-        # L = (b²/2) ∂²/∂s² + rs ∂/∂s - r
+        # L = (b̄²/2) ∂²/∂s² + rs ∂/∂s - r
         # Using central differences:
         # ∂²u/∂s² ≈ (u_{i-1} - 2u_i + u_{i+1}) / ds²
         # ∂u/∂s ≈ (u_{i+1} - u_{i-1}) / (2ds)
         
         # Coefficient of u_{i-1}
-        alpha = vol_sq / (2 * ds**2) - r * s_grid / (2 * ds)
+        alpha = b_sq / (2 * ds**2) - r * s_grid / (2 * ds)
         
         # Coefficient of u_i
-        beta = -vol_sq / ds**2 - r
+        beta = -b_sq / ds**2 - r
         
         # Coefficient of u_{i+1}
-        gamma = vol_sq / (2 * ds**2) + r * s_grid / (2 * ds)
+        gamma = b_sq / (2 * ds**2) + r * s_grid / (2 * ds)
         
         # Build matrix (I - dt * L) in banded form
         # Main diagonal: 1 - dt * beta
@@ -130,18 +127,24 @@ def solve_american_option_pde(vol_func, r, K, T, s_min, s_max,
     # Compute exercise boundary
     exercise_boundary = np.zeros(N_t + 1)
     for n in range(N_t + 1):
-        # Find where V(t, s) = payoff (exercise region)
+        # Find where V(t, s) ≈ payoff (exercise region)
+        # Use relative tolerance for numerical stability
         if option_type == 'put':
-            # For put, exercise when s is small
+            # For put, exercise when s is small (where payoff > 0)
+            # Exercise region: V(t,s) = (K-s)+ and it's optimal to exercise
             diff = V[n, :] - payoff
-            exercise_idx = np.where(diff < 1e-6)[0]
+            # Use relative tolerance based on payoff magnitude
+            tol = 0.01 * np.maximum(payoff, 0.1)
+            exercise_idx = np.where((diff < tol) & (payoff > 0))[0]
             if len(exercise_idx) > 0:
+                # Boundary is the largest s in exercise region
                 exercise_boundary[n] = s_grid[exercise_idx[-1]]
             else:
                 exercise_boundary[n] = s_min
         else:
             diff = V[n, :] - payoff
-            exercise_idx = np.where(diff < 1e-6)[0]
+            tol = 0.01 * np.maximum(payoff, 0.1)
+            exercise_idx = np.where((diff < tol) & (payoff > 0))[0]
             if len(exercise_idx) > 0:
                 exercise_boundary[n] = s_grid[exercise_idx[0]]
             else:
@@ -327,14 +330,16 @@ def monte_carlo_upper_bound(x0, P1, r, sigma, corr_chol, T, K,
 if __name__ == "__main__":
     print("PDE Solver Module - Test")
     
-    # Simple test with constant volatility
-    def const_vol(t, s):
-        return 30.0  # Constant volatility
+    # Simple test with constant b̄² (diffusion coefficient squared)
+    # b̄² ≈ 1355 at s=300 from paper
+    def const_b_squared(t, s):
+        return 1355.0  # Constant b̄²
     
     result = solve_american_option_pde(
-        const_vol, r=0.05, K=300, T=0.5,
+        const_b_squared, r=0.05, K=300, T=0.5,
         s_min=200, s_max=400, N_t=100, N_s=100
     )
     
-    print(f"Option value at t=0, s=300: {result['values'][0, 50]:.4f}")
+    s_idx = np.argmin(np.abs(result['s_grid'] - 300))
+    print(f"Option value at t=0, s=300: {result['values'][0, s_idx]:.4f}")
     print(f"Exercise boundary at t=0: {result['exercise_boundary'][0]:.2f}")

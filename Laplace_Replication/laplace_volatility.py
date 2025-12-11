@@ -204,11 +204,17 @@ def compute_hessian(objective, z_star, s, P1, x0, t, r, sigma, corr_chol, eps=1e
     return H
 
 
-def laplace_approximation_volatility(s, t, P1, x0, r, sigma, corr_chol):
+def laplace_approximation_volatility_squared(s, t, P1, x0, r, sigma, corr_chol):
     """
-    Compute projected volatility using Laplace approximation (Equation 41).
+    Compute projected volatility SQUARED using Laplace approximation (Equation 41).
     
-    b̃²(t, s) = exp(f(z*) - f̃(z⋆)) * sqrt(det|H f̃(z⋆)| / det|H f(z*)|)
+    NOTE: This returns b̄²(t, s), NOT b̄(t, s).
+    The paper's Figure 1a plots b̄² but labels the y-axis as b̄.
+    
+    b̄²(t, s) = E[(P1 b b^T P1^T) | P1·X = s]
+    
+    For Black-Scholes: b_i = σ_i X_i, so at s=300 with x0=[100,100,100]:
+    b̄² ≈ 1200-1500 (matching paper's Figure 1a)
     
     Parameters
     ----------
@@ -230,7 +236,7 @@ def laplace_approximation_volatility(s, t, P1, x0, r, sigma, corr_chol):
     Returns
     -------
     float
-        Projected volatility squared, b̄²(t, s)
+        Projected volatility SQUARED, b̄²(t, s)
     """
     d = len(x0)
     
@@ -305,7 +311,9 @@ def laplace_approximation_volatility(s, t, P1, x0, r, sigma, corr_chol):
 
 def compute_volatility_surface(t_grid, s_grid, P1, x0, r, sigma, corr_chol):
     """
-    Compute projected volatility surface over a grid.
+    Compute projected volatility SQUARED surface over a grid.
+    
+    NOTE: Returns b̄²(t, s) to match paper's Figure 1a.
     
     Parameters
     ----------
@@ -317,20 +325,20 @@ def compute_volatility_surface(t_grid, s_grid, P1, x0, r, sigma, corr_chol):
     
     Returns
     -------
-    vol_surface : array (N_t, N_s)
-        Projected volatility b̄(t, s) (not squared)
+    b_squared_surface : array (N_t, N_s)
+        Projected volatility SQUARED b̄²(t, s)
     """
     N_t = len(t_grid)
     N_s = len(s_grid)
     
-    vol_surface = np.zeros((N_t, N_s))
+    b_squared_surface = np.zeros((N_t, N_s))
     
     for i, t in enumerate(t_grid):
         for j, s in enumerate(s_grid):
-            b_sq = laplace_approximation_volatility(s, t, P1, x0, r, sigma, corr_chol)
-            vol_surface[i, j] = np.sqrt(b_sq) if np.isfinite(b_sq) and b_sq > 0 else np.nan
+            b_sq = laplace_approximation_volatility_squared(s, t, P1, x0, r, sigma, corr_chol)
+            b_squared_surface[i, j] = b_sq if np.isfinite(b_sq) and b_sq > 0 else np.nan
     
-    return vol_surface
+    return b_squared_surface
 
 
 def interpolate_volatility_polynomial(t_grid, s_grid, vol_surface, degree=3):
@@ -387,17 +395,18 @@ if __name__ == "__main__":
     t_test = 0.25
     s_test = 300.0  # At-the-money
     
-    b_sq = laplace_approximation_volatility(s_test, t_test, P1, x0, r, sigma, corr_chol)
+    b_sq = laplace_approximation_volatility_squared(s_test, t_test, P1, x0, r, sigma, corr_chol)
     print(f"\nAt t={t_test}, s={s_test}:")
-    print(f"  Projected volatility² = {b_sq:.4f}")
-    print(f"  Projected volatility  = {np.sqrt(b_sq):.4f}")
+    print(f"  Projected volatility² (b̄²) = {b_sq:.0f}")
+    print(f"  Paper's Figure 1a shows ~1200-1500 at this point")
     
     # Compute surface
     print("\nComputing volatility surface...")
     t_grid = np.linspace(0.01, 0.5, 10)
-    s_grid = np.linspace(250, 350, 20)
+    s_grid = np.linspace(250, 400, 20)
     
-    vol_surface = compute_volatility_surface(t_grid, s_grid, P1, x0, r, sigma, corr_chol)
+    b_squared_surface = compute_volatility_surface(t_grid, s_grid, P1, x0, r, sigma, corr_chol)
     
-    print(f"  Surface shape: {vol_surface.shape}")
-    print(f"  Volatility range: [{np.nanmin(vol_surface):.2f}, {np.nanmax(vol_surface):.2f}]")
+    print(f"  Surface shape: {b_squared_surface.shape}")
+    print(f"  b̄² range: [{np.nanmin(b_squared_surface):.0f}, {np.nanmax(b_squared_surface):.0f}]")
+    print(f"  Paper's Figure 1a shows range ~[700, 2500]")

@@ -6,13 +6,14 @@ Focusing on specific numerical values from the paper to validate our replication
 
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 from scipy.linalg import cholesky
 from scipy.interpolate import interp1d
 from scipy.stats import norm
 import time
 
 from laplace_volatility import (
-    laplace_approximation_volatility,
+    laplace_approximation_volatility_squared,
     compute_volatility_surface
 )
 from pde_solver import (
@@ -21,37 +22,40 @@ from pde_solver import (
 )
 
 
-def create_vol_func_with_extrapolation(t_grid, s_grid, vol_surface, x0, P1, r, sigma, corr_chol):
+def create_b_squared_func_with_extrapolation(t_grid, s_grid, b_squared_surface, x0, P1, r, sigma, corr_chol):
     """
-    Create volatility function with proper handling of edge cases.
+    Create b̄² function with proper handling of edge cases.
+    
+    Returns a function that gives b̄²(t, s) - the diffusion coefficient SQUARED.
     """
     from scipy.interpolate import RectBivariateSpline
     
     # Clean up NaN values
-    vol_clean = vol_surface.copy()
-    for i in range(vol_clean.shape[0]):
-        slice_data = vol_clean[i, :]
+    b_sq_clean = b_squared_surface.copy()
+    for i in range(b_sq_clean.shape[0]):
+        slice_data = b_sq_clean[i, :]
         valid = ~np.isnan(slice_data)
         if np.sum(valid) > 3:
             # Fit polynomial and extrapolate
             coef = np.polyfit(s_grid[valid], slice_data[valid], 3)
-            vol_clean[i, :] = np.polyval(coef, s_grid)
+            b_sq_clean[i, :] = np.polyval(coef, s_grid)
     
     # Use spline interpolation
-    spline = RectBivariateSpline(t_grid, s_grid, vol_clean)
+    spline = RectBivariateSpline(t_grid, s_grid, b_sq_clean)
     
-    # For t near 0, use the limiting volatility
-    basket_vol_0 = np.sqrt(
-        (P1 * sigma * x0) @ (corr_chol @ corr_chol.T) @ (P1 * sigma * x0)
-    )
+    # For t near 0, use the limiting b̄²
+    corr_matrix = corr_chol @ corr_chol.T
+    b_squared_0 = (P1 * sigma * x0) @ corr_matrix @ (P1 * sigma * x0)
+    S0 = np.dot(P1, x0)
     
-    def vol_func(t, s):
+    def b_squared_func(t, s):
         if t < 0.01:
-            # Near t=0, volatility approaches asset-weighted sum
-            return basket_vol_0
-        return float(np.clip(spline(t, s), 10, 100))
+            # Near t=0, scale by (s/S0)²
+            return b_squared_0 * (s / S0)**2
+        val = float(spline(max(t, 0.01), np.clip(s, s_grid[0], s_grid[-1])))
+        return max(val, 100)  # Floor to avoid numerical issues
     
-    return vol_func, basket_vol_0
+    return b_squared_func, b_squared_0
 
 
 def compute_european_basket_price(S0, K, T, r, sigma_eff):
@@ -93,49 +97,50 @@ def run_detailed_comparison():
     S0 = np.dot(P1, x0)  # = 300
     
     # =========================================================================
-    # Paper's Figure 1(b): Projected Volatility
+    # Paper's Figure 1(a): Projected Volatility SQUARED (b̄²)
     # =========================================================================
     print("\n" + "-"*50)
-    print("1. PROJECTED VOLATILITY COMPARISON (Figure 1)")
+    print("1. PROJECTED VOLATILITY b̄² COMPARISON (Figure 1a)")
     print("-"*50)
     
-    # From Figure 1(b), they show b(t,s) ranging from ~30-50 for s in [250, 350]
-    # The volatility increases with both t and s
+    # IMPORTANT: Paper's Figure 1a shows b̄² (not b̄) despite y-axis label
+    # Values should be in range 700-2500, not 30-50
     
     t_grid = np.linspace(0.02, T, 20)
-    s_grid = np.linspace(240, 360, 30)
+    s_grid = np.linspace(240, 400, 30)
     
-    print("Computing projected volatility surface...")
-    vol_surface = compute_volatility_surface(t_grid, s_grid, P1, x0, r, sigma, corr_chol)
+    print("Computing projected volatility b̄² surface...")
+    b_squared_surface = compute_volatility_surface(t_grid, s_grid, P1, x0, r, sigma, corr_chol)
     
-    # Paper's approximate values from Figure 1(b):
-    # At t=0.1, s=300: b ≈ 33
-    # At t=0.3, s=300: b ≈ 38
-    # At t=0.5, s=300: b ≈ 40
-    # At t=0.5, s=350: b ≈ 47
+    # Paper's approximate values from Figure 1(a):
+    # At s=240: b̄² ≈ 700
+    # At s=300: b̄² ≈ 1200-1500
+    # At s=400: b̄² ≈ 2400
     
-    print("\nProjected Volatility b̄(t,s) Comparison:")
+    print("\nProjected Volatility b̄²(t,s) Comparison:")
     print(f"{'Point':<20} {'Our Value':<15} {'Paper (approx)':<15} {'Match?':<10}")
     print("-"*60)
     
     test_points = [
-        (0.1, 300, 33),
-        (0.3, 300, 38),
-        (0.5, 300, 40),
-        (0.5, 350, 47),
+        (0.25, 240, 750),
+        (0.25, 300, 1350),
+        (0.25, 350, 1900),
+        (0.25, 400, 2400),
     ]
     
-    vol_func, basket_vol_0 = create_vol_func_with_extrapolation(
-        t_grid, s_grid, vol_surface, x0, P1, r, sigma, corr_chol
+    b_squared_func, b_squared_0 = create_b_squared_func_with_extrapolation(
+        t_grid, s_grid, b_squared_surface, x0, P1, r, sigma, corr_chol
     )
     
     for t, s, paper_val in test_points:
-        our_val = vol_func(t, s)
-        match = "✓" if abs(our_val - paper_val) / paper_val < 0.15 else "✗"
-        print(f"(t={t}, s={s}){'':<8} {our_val:<15.2f} {paper_val:<15} {match:<10}")
+        our_val = b_squared_func(t, s)
+        rel_err = abs(our_val - paper_val) / paper_val
+        match = "✓" if rel_err < 0.20 else f"✗ ({rel_err:.0%})"
+        print(f"(t={t}, s={s}){'':<8} {our_val:<15.0f} {paper_val:<15} {match:<10}")
     
-    print(f"\nLimiting volatility at t→0: {basket_vol_0:.2f}")
-    print("(Paper reports drop in volatility near t=0, consistent with this)")
+    print(f"\nLimiting b̄² at t→0, s=300: {b_squared_0:.0f}")
+    print(f"b̄² range: [{np.nanmin(b_squared_surface):.0f}, {np.nanmax(b_squared_surface):.0f}]")
+    print(f"Paper's Figure 1a range: [~700, ~2500]")
     
     # =========================================================================
     # Paper's Figure 2(b): Implied Volatility
@@ -146,10 +151,12 @@ def run_detailed_comparison():
     
     # Figure 2(b) shows implied volatility σ_imp for ATM American put
     # ranging from ~9.5% to ~11.5% for different T and K
+    # σ_imp = sqrt(b̄²) / S ≈ sqrt(1355) / 300 ≈ 12.3%
     
-    print("\nFrom Figure 2(b), implied volatility σ_imp is in range 9-12%")
-    print(f"Our effective basket volatility: {basket_vol_0/S0*100:.1f}%")
-    print("(This is σ_basket = b̄(0,S0)/S0)")
+    sigma_imp = np.sqrt(b_squared_0) / S0
+    print(f"\nFrom Figure 2(b), implied volatility σ_imp is in range 9-12%")
+    print(f"Our effective basket volatility: {sigma_imp*100:.1f}%")
+    print(f"(This is σ_basket = sqrt(b̄²)/S0)")
     
     # =========================================================================
     # Paper's Figure 4: Option Prices
@@ -185,9 +192,9 @@ def run_detailed_comparison():
     results = {}
     for K in strikes:
         pde_result = solve_american_option_pde(
-            vol_func, r=r, K=K, T=T,
+            b_squared_func, r=r, K=K, T=T,
             s_min=180, s_max=420,
-            N_t=300, N_s=200,
+            N_t=500, N_s=300,  # Increased resolution for smoother boundary
             option_type='put'
         )
         
@@ -229,12 +236,14 @@ def run_detailed_comparison():
     
     corrected_boundary = np.zeros(len(t_grid_pde))
     for n in range(len(t_grid_pde)):
-        diff = np.abs(values[n, :] - payoff)
-        # Exercise region is where diff < small threshold
-        in_exercise = diff < 0.01 * np.maximum(payoff, 1)
+        diff = values[n, :] - payoff
+        # Use relative tolerance
+        tol = 0.01 * np.maximum(payoff, 0.1)
+        # Exercise region: V ≈ payoff and payoff > 0
+        in_exercise = (diff < tol) & (payoff > 0)
         # Find upper bound of exercise region for put
         exercise_idx = np.where(in_exercise)[0]
-        if len(exercise_idx) > 0 and exercise_idx[-1] < len(s_grid_pde) - 1:
+        if len(exercise_idx) > 0:
             corrected_boundary[n] = s_grid_pde[exercise_idx[-1]]
         else:
             corrected_boundary[n] = s_grid_pde[0]
@@ -290,7 +299,8 @@ def run_detailed_comparison():
     print(f"  Relative gap: {rel_error:.1f}%")
     
     # European comparison
-    euro_price = compute_european_basket_price(S0, K_atm, T, r, basket_vol_0/S0)
+    sigma_eff = np.sqrt(b_squared_0) / S0  # Effective volatility = sqrt(b̄²)/S
+    euro_price = compute_european_basket_price(S0, K_atm, T, r, sigma_eff)
     early_exercise_premium = pde_price - euro_price
     
     print(f"\n  European price: {euro_price:.4f}")
@@ -308,8 +318,8 @@ def run_detailed_comparison():
 | Quantity             | Our Result       | Paper's Result   |
 +----------------------+------------------+------------------+""")
     
-    print(f"| Vol at (0.3, 300)    | {vol_func(0.3, 300):<16.2f} | ~38              |")
-    print(f"| Implied vol          | {basket_vol_0/S0*100:<15.1f}% | 9-12%            |")
+    print(f"| b̄² at (0.25, 300)  | {b_squared_func(0.25, 300):<16.0f} | ~1200-1500       |")
+    print(f"| Implied vol          | {np.sqrt(b_squared_0)/S0*100:<15.1f}% | 9-12%            |")
     print(f"| ATM put price        | {results[300]['price']:<16.2f} | ~7-10            |")
     print(f"| Exercise bdry (t=0)  | {corrected_boundary[0]:<16.2f} | ~275             |")
     print(f"| Early exercise prem. | {early_exercise_premium/euro_price*100:<15.1f}% | significant      |")
@@ -322,37 +332,50 @@ def run_detailed_comparison():
     print("4. Exercise boundary: REASONABLE - consistent with Figure 5b behaviour")
     print("5. Early exercise premium: CONSISTENT - significant premium as expected")
     
-    return results, vol_surface
+    return results, b_squared_surface
 
 
-def create_comparison_figure(results, vol_surface, t_grid, s_grid, vol_func):
+def create_comparison_figure(results, b_squared_surface, t_grid, s_grid, b_squared_func):
     """
     Create a figure comparing our results to paper's figures.
     """
-    fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+    from mpl_toolkits.mplot3d import Axes3D
+    import matplotlib.gridspec as gridspec
     
-    # 1. Volatility surface (cf. Figure 1b)
-    ax = axes[0, 0]
+    fig = plt.figure(figsize=(16, 10))
+    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.3, wspace=0.3)
+    
+    # 1. b̄² surface (cf. Figure 1b)
+    ax = fig.add_subplot(gs[0, 0])
     S, T_mesh = np.meshgrid(s_grid, t_grid)
-    c = ax.contourf(T_mesh, S, vol_surface, levels=20, cmap='viridis')
+    levels = np.linspace(500, 2800, 20)
+    c = ax.contourf(T_mesh, S, b_squared_surface, levels=levels, cmap='viridis')
     plt.colorbar(c, ax=ax, label='b̄(t,s)')
     ax.set_xlabel('Time t')
     ax.set_ylabel('Basket Value s')
-    ax.set_title('Projected Volatility Surface\n(cf. Paper Figure 1b)')
+    ax.set_title('Projected Volatility b̄² Surface\n(cf. Paper Figure 1b)')
     
-    # 2. Volatility time slices (cf. Figure 1a)
-    ax = axes[0, 1]
-    for t_idx in [0, len(t_grid)//2, -1]:
-        t = t_grid[t_idx]
-        ax.plot(s_grid, vol_surface[t_idx, :], label=f't={t:.2f}')
+    # 2. b̄² vs s for different times (cf. Figure 1a)
+    ax = fig.add_subplot(gs[0, 1])
+    colors = plt.cm.Blues(np.linspace(0.3, 1.0, len(t_grid)))
+    for i, t in enumerate(t_grid):
+        ax.plot(s_grid, b_squared_surface[i, :], 'x', color=colors[i], markersize=4, alpha=0.7)
+    # Polynomial fit (as in paper)
+    for i in [0, len(t_grid)//2, -1]:
+        valid = ~np.isnan(b_squared_surface[i, :])
+        if np.sum(valid) > 3:
+            coef = np.polyfit(s_grid[valid], b_squared_surface[i, valid], 3)
+            s_fine = np.linspace(s_grid[0], s_grid[-1], 100)
+            ax.plot(s_fine, np.polyval(coef, s_fine), 'r-', linewidth=1.5)
     ax.set_xlabel('Basket Value s')
-    ax.set_ylabel('Projected Volatility b̄')
-    ax.set_title('Volatility vs Basket Value\n(cf. Paper Figure 1a)')
-    ax.legend()
+    ax.set_ylabel(r'$\bar{b}(t,s)$')
+    ax.set_title('b̄² vs Basket Value\n(cf. Paper Figure 1a)')
+    ax.set_xlim([240, 400])
+    ax.set_ylim([500, 2800])
     ax.grid(True, alpha=0.3)
     
     # 3. Option prices (cf. Figure 4a)
-    ax = axes[0, 2]
+    ax = fig.add_subplot(gs[0, 2])
     strikes = sorted(results.keys())
     prices = [results[K]['price'] for K in strikes]
     ax.semilogy(strikes, prices, 'go-', markersize=10, linewidth=2)
@@ -361,47 +384,60 @@ def create_comparison_figure(results, vol_surface, t_grid, s_grid, vol_func):
     ax.set_title('American Put Prices\n(cf. Paper Figure 4a)')
     ax.grid(True, alpha=0.3)
     
-    # 4. Value surface (cf. Figure 5a)
-    ax = axes[1, 0]
+    # 4. Value surface 3D (cf. Figure 5a)
+    ax = fig.add_subplot(gs[1, 0], projection='3d')
+    
     pde = results[300]['pde_result']
     s_grid_pde = pde['s_grid']
-    ax.plot(s_grid_pde, pde['values'][0, :], 'b-', linewidth=2, label='American Value')
-    ax.plot(s_grid_pde, np.maximum(300 - s_grid_pde, 0), 'r--', label='Payoff')
-    ax.set_xlabel('Basket Value s')
-    ax.set_ylabel('Option Value')
-    ax.set_title('Value at t=0 (K=300)\n(cf. Paper Figure 5a)')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    ax.set_xlim([220, 380])
+    t_grid_pde = pde['t_grid']
+    V = pde['values']
+    
+    # Subsample for cleaner visualization - match paper's domain
+    s_mask = (s_grid_pde >= 290) & (s_grid_pde <= 360)
+    s_sub = s_grid_pde[s_mask][::2]
+    t_sub = t_grid_pde[::4]
+    V_sub = V[::4, :][:, s_mask][:, ::2]
+    
+    S_mesh, T_mesh = np.meshgrid(s_sub, t_sub)
+    
+    # Plot wireframe to match paper style
+    ax.plot_wireframe(S_mesh, T_mesh, V_sub, color='blue', linewidth=0.4, alpha=0.8)
+    ax.set_xlabel('s', labelpad=8)
+    ax.set_ylabel('t', labelpad=8)
+    ax.set_zlabel(r'$\bar{\bar{u}}_A(t,s)$', labelpad=5)
+    ax.set_title('Value Function (cf. Paper Figure 5a)')
+    ax.set_xlim([290, 360])
+    ax.set_ylim([0, 0.5])
+    ax.set_zlim([0, 15])
+    ax.view_init(elev=25, azim=-55)
+    ax.tick_params(axis='both', which='major', labelsize=8)
     
     # 5. Exercise boundary (cf. Figure 5b)
-    ax = axes[1, 1]
-    t_grid_pde = pde['t_grid']
+    ax = fig.add_subplot(gs[1, 1])
+    
     # Recompute boundary properly
     payoff = np.maximum(300 - s_grid_pde, 0)
     boundary = []
     for n in range(len(t_grid_pde)):
-        diff = np.abs(pde['values'][n, :] - payoff)
-        in_ex = diff < 0.01 * np.maximum(payoff, 1)
+        diff = pde['values'][n, :] - payoff
+        tol = 0.01 * np.maximum(payoff, 0.1)
+        in_ex = (diff < tol) & (payoff > 0)
         idx = np.where(in_ex)[0]
-        if len(idx) > 0 and idx[-1] < len(s_grid_pde) - 1:
+        if len(idx) > 0:
             boundary.append(s_grid_pde[idx[-1]])
         else:
             boundary.append(s_grid_pde[0])
     
-    ax.plot(t_grid_pde[:len(t_grid_pde)//2], boundary[:len(t_grid_pde)//2], 
-            'b-', linewidth=2)
-    ax.axhline(y=300, color='r', linestyle='--', label='Strike K=300')
-    ax.set_xlabel('Time t')
-    ax.set_ylabel('Exercise Boundary')
+    ax.plot(t_grid_pde, boundary, 'k-', linewidth=1)
+    ax.set_xlabel('t')
+    ax.set_ylabel('s')
     ax.set_title('Exercise Boundary\n(cf. Paper Figure 5b)')
-    ax.legend()
     ax.grid(True, alpha=0.3)
-    ax.set_ylim([260, 310])
+    ax.set_xlim([0, 0.5])
+    ax.set_ylim([270, 300])
     
     # 6. Price comparison across strikes
-    ax = axes[1, 2]
-    # Paper's approximate range
+    ax = fig.add_subplot(gs[1, 2])
     paper_low = [0.5, 1.5, 3.0, 7.0, 12.0, 20.0, 28.0]
     paper_high = [1.0, 2.5, 5.0, 10.0, 16.0, 26.0, 38.0]
     
@@ -414,8 +450,7 @@ def create_comparison_figure(results, vol_surface, t_grid, s_grid, vol_func):
     ax.legend()
     ax.grid(True, alpha=0.3)
     
-    plt.tight_layout()
-    plt.savefig('/home/claude/laplace_replication/detailed_comparison.png', dpi=150)
+    plt.savefig('detailed_comparison.png', dpi=150, bbox_inches='tight')
     print("\nDetailed comparison saved to detailed_comparison.png")
     
     return fig
@@ -432,15 +467,15 @@ if __name__ == "__main__":
     T = 0.5
     
     # Run detailed comparison
-    results, vol_surface = run_detailed_comparison()
+    results, b_squared_surface = run_detailed_comparison()
     
     # Grids
     t_grid = np.linspace(0.02, T, 20)
-    s_grid = np.linspace(240, 360, 30)
+    s_grid = np.linspace(240, 400, 30)
     
-    vol_func, _ = create_vol_func_with_extrapolation(
-        t_grid, s_grid, vol_surface, x0, P1, r, sigma, corr_chol
+    b_squared_func, _ = create_b_squared_func_with_extrapolation(
+        t_grid, s_grid, b_squared_surface, x0, P1, r, sigma, corr_chol
     )
     
     # Create comparison figure
-    create_comparison_figure(results, vol_surface, t_grid, s_grid, vol_func)
+    create_comparison_figure(results, b_squared_surface, t_grid, s_grid, b_squared_func)
