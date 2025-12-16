@@ -40,6 +40,7 @@ from methods import (
     estimate_volatility_mlmc,
     estimate_volatility_laplace,
 )
+from PDE.mlmc_volatility_estimation import estimate_basket_domain
 
 
 def solve_american_pde(b_squared_surface, params, S_grid, t_grid):
@@ -184,14 +185,51 @@ def run_experiment(
         print(f"d = {params.d} assets, S0 = {params.S0}, K = {params.K}")
         print(f"Option type: {params.option_type}")
         print()
-    
+
+    # Step 1: Run pilot to get MLMC domain bounds
+    if verbose:
+        print("-" * 50)
+        print("Estimating MLMC domain via pilot run...")
+        print("-" * 50)
+
+    np.random.seed(params.random_seed)
+    S_min, S_max, _ = estimate_basket_domain(
+        S0=params.x0,
+        T=params.T,
+        h0=params.h0,
+        r=params.r,
+        cov_mat=params.corr_matrix,
+        vol=params.sigma,
+        max_degree=params.max_degree,
+        basket_weights=params.P1,
+        N_pilot=10000
+    )
+
+    # Define grids WITHIN the domain
+    margin = 0.02
+    S_range = S_max - S_min
+
     # Grid for volatility surface estimation
     t_vol_grid = np.linspace(0.02, params.T, 20)
-    s_vol_grid = np.linspace(params.S0 * 0.5, params.S0 * 1.5, 40)
-    
-    # PDE grid (finer for pricing)
+    s_vol_grid = np.linspace(
+        S_min + margin * S_range,
+        S_max - margin * S_range,
+        40
+    )
+
+    # PDE grid (finer for pricing, same domain)
     t_pde_grid = np.linspace(0, params.T, params.N_t)
-    S_pde_grid = np.linspace(params.S0 * 0.5, params.S0 * 1.5, params.N_s)
+    S_pde_grid = np.linspace(
+        S_min + margin * S_range,
+        S_max - margin * S_range,
+        params.N_s
+    )
+
+    if verbose:
+        print(f"Domain from pilot: [{S_min:.1f}, {S_max:.1f}]")
+        print(f"Volatility grid: [{s_vol_grid.min():.1f}, {s_vol_grid.max():.1f}]")
+        print(f"PDE grid: [{S_pde_grid.min():.1f}, {S_pde_grid.max():.1f}]")
+        print()
     
     # Step 1: Compute volatility surfaces
     if verbose:

@@ -46,6 +46,7 @@ from methods import (
     estimate_volatility_laplace,
     compute_accuracy_metrics,
 )
+from PDE.mlmc_volatility_estimation import estimate_basket_domain
 
 
 def run_single_comparison(params, t_grid, s_grid, verbose=False):
@@ -125,13 +126,44 @@ def run_experiment(
         print("EXPERIMENT 5: Parameter Sensitivity Analysis")
         print("=" * 70)
         print()
-    
+
     # Use 2D for faster sensitivity analysis
     base_params = create_2d_params()
-    
-    # Common grid
+
+    # Run pilot to get MLMC domain bounds
+    if verbose:
+        print("-" * 50)
+        print("Estimating MLMC domain via pilot run...")
+        print("-" * 50)
+
+    np.random.seed(base_params.random_seed)
+    S_min, S_max, _ = estimate_basket_domain(
+        S0=base_params.x0,
+        T=base_params.T,
+        h0=base_params.h0,
+        r=base_params.r,
+        cov_mat=base_params.corr_matrix,
+        vol=base_params.sigma,
+        max_degree=base_params.max_degree,
+        basket_weights=base_params.P1,
+        N_pilot=10000
+    )
+
+    # Common grid WITHIN the domain (with safety margin)
+    margin = 0.02  # 2% inset from boundaries
+    S_range = S_max - S_min
+
     t_grid = np.linspace(0.02, base_params.T, 12)
-    s_grid = np.linspace(base_params.S0 * 0.8, base_params.S0 * 1.3, 20)
+    s_grid = np.linspace(
+        S_min + margin * S_range,  # Slightly above S_min
+        S_max - margin * S_range,  # Slightly below S_max
+        20
+    )
+
+    if verbose:
+        print(f"Domain from pilot: [{S_min:.1f}, {S_max:.1f}]")
+        print(f"Evaluation grid: [{s_grid.min():.1f}, {s_grid.max():.1f}]")
+        print()
     
     all_results = {}
     

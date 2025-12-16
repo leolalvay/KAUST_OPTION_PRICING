@@ -46,6 +46,7 @@ from methods import (
     estimate_volatility_laplace,
     compute_accuracy_metrics,
 )
+from PDE.mlmc_volatility_estimation import estimate_basket_domain
 
 
 def run_experiment(
@@ -129,14 +130,38 @@ def run_experiment(
         if verbose:
             print(f"  S0 = {params.S0:.1f}, K = {params.K:.1f}")
             print(f"  σ = {params.sigma}")
-        
-        # Define evaluation grid (relative to basket value)
+
+        # Run pilot to get MLMC domain bounds
+        if verbose:
+            print(f"  Estimating MLMC domain via pilot run...")
+
+        np.random.seed(params.random_seed)
+        S_min, S_max, _ = estimate_basket_domain(
+            S0=params.x0,
+            T=params.T,
+            h0=params.h0,
+            r=params.r,
+            cov_mat=params.corr_matrix,
+            vol=params.sigma,
+            max_degree=params.max_degree,
+            basket_weights=params.P1,
+            N_pilot=10000
+        )
+
+        # Define grids WITHIN the domain (with safety margin)
+        margin = 0.02  # 2% inset from boundaries
+        S_range = S_max - S_min
+
         t_grid = np.linspace(0.02, params.T, 15)
         s_grid = np.linspace(
-            params.S0 * 0.8,
-            params.S0 * 1.3,
+            S_min + margin * S_range,  # Slightly above S_min
+            S_max - margin * S_range,  # Slightly below S_max
             25
         )
+
+        if verbose:
+            print(f"  Domain from pilot: [{S_min:.1f}, {S_max:.1f}]")
+            print(f"  Evaluation grid: [{s_grid.min():.1f}, {s_grid.max():.1f}]")
         
         # Run MLMC
         if verbose:
