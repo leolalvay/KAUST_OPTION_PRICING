@@ -5,12 +5,12 @@
 | Metric | Value |
 |--------|-------|
 | L2 relative error | 2.000000 |
-| L∞ error | 56551886775.6862 |
-| Mean absolute difference | 18196515970.5393 |
+| L∞ error | 28416316569.0657 |
+| Mean absolute difference | 9098743280.7659 |
 | Mean relative difference | 200.00% |
-| Bias (MLMC - Laplace) | 18196515567.4284 |
-| Pearson correlation | 0.7223 |
-| Valid grid fraction | 51.7% |
+| Bias (MLMC - Laplace) | 9098742844.1152 |
+| Pearson correlation | 0.6939 |
+| Valid grid fraction | 44.5% |
 
 ## Parameters
 
