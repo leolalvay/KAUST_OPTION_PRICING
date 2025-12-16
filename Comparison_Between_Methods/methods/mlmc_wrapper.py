@@ -41,6 +41,12 @@ from .common import VolatilitySurfaceResult
 # Try to import the actual MLMC code
 _MLMC_AVAILABLE = False
 try:
+    # Import basket_simulation first and add to sys.modules
+    # This is needed because mlmc_volatility_estimation uses a relative import
+    import PDE.basket_simulation
+    sys.modules['basket_simulation'] = PDE.basket_simulation
+
+    # Now we can safely import mlmc_volatility_estimation
     from PDE.mlmc_volatility_estimation import (
         aggregate_mlmc_coefficients,
         estimate_basket_domain,
