@@ -248,7 +248,8 @@ def estimate_coefficients_at_level(
     # Construct regression system
     D, psi = construct_regression_system(
         paths_fine, paths_coarse, basket_weights, basis_pairs,
-        cov_mat, vol, S_min, S_max, T
+        cov_mat, vol, S_min, S_max, T,
+        level=level  # NEW: pass level for special handling
     )
     
     # Diagnostics for numerical stability

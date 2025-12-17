@@ -1,4 +1,5 @@
 # This file is based on DM_utils_ML.py from Amelie's work.
+# Fixed by Wadoud (December 2024) to handle Level 0 correctly in MLMC.
 
 """
 Basket Option Simulation and Volatility Surface Estimation
@@ -7,6 +8,17 @@ Provides tools for:
 1. Simulating correlated GBM paths for multi-asset baskets
 2. Constructing polynomial regression systems for volatility fitting
 3. Building projected volatility surfaces b(t,S) from estimated coefficients
+
+Key Fix (December 2024):
+------------------------
+Level 0 in MLMC requires special handling. At Level 0:
+- There is no coarser level to compare against
+- We must use ALL fine timesteps (not subsampled to coarse)
+- The target psi is just b_fine² (not b_fine² - b_coarse²)
+
+Without this fix, Level 0 had only ~2 timesteps for fitting a degree-3
+polynomial in time, leading to condition numbers of 10^16 and garbage
+coefficients that produced negative variances.
 """
 
 import numpy as np
@@ -91,7 +103,7 @@ def generate_polynomial_basis_pairs(max_degree=3):
     Examples
     --------
     >>> generate_polynomial_basis_pairs(max_degree=2)
-    [(0, 0), (1, 0), (0, 1), (2, 0), (1, 1), (0, 2)]
+    [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (2, 0)]
     
     Notes
     -----
@@ -114,7 +126,8 @@ def construct_regression_system(
     vol, 
     S_min, 
     S_max, 
-    T
+    T,
+    level=1  # NEW: Level 0 requires special handling
 ):
     """
     Construct normal equation components D and psi for volatility regression.
@@ -145,43 +158,76 @@ def construct_regression_system(
         Domain bounds for spatial scaling to [-1, 1]
     T : float
         Maturity time for temporal scaling to [-1, 1]
+    level : int, default 1
+        MLMC level. Level 0 requires special handling:
+        - Use ALL fine timesteps (not subsampled)
+        - Target is b_fine² only (no coarse subtraction)
         
     Returns
     -------
-    D : np.ndarray, shape (N_paths * N_coarse, n_basis)
+    D : np.ndarray, shape (N_paths * N_time, n_basis)
         Design matrix with Legendre polynomials
-    psi : np.ndarray, shape (N_paths * N_coarse, 1)
-        Target volatility differences
+    psi : np.ndarray, shape (N_paths * N_time, 1)
+        Target volatility values or differences
         
     Notes
     -----
-    - Fine paths are subsampled to coarse timesteps (every other point)
+    - For level > 0: Fine paths are subsampled to coarse timesteps
+    - For level == 0: ALL fine timesteps are used (critical fix!)
     - Legendre polynomials are orthonormalised on [-1, 1]
     - Scaling ensures numerical stability of regression
+    
+    The Level 0 fix is essential because:
+    - At level 0, coarse paths don't exist (they're zeros)
+    - Without using all fine timesteps, we'd have only ~2 time points
+    - Fitting a degree-3 polynomial with 2 points gives condition ~10^16
     """
-    N_paths, N_coarse, d = paths_coarse.shape
+    N_paths, N_fine, d = paths_fine.shape
+    _, N_coarse, _ = paths_coarse.shape
     n_basis = len(basis_pairs)
     
     print(f"Basis pairs: {basis_pairs}")
     
-    # Construct design matrix using fine paths at coarse time intervals
-    t = np.linspace(0, T, N_coarse)
+    # ==========================================================================
+    # CRITICAL FIX: Level 0 uses ALL fine timesteps
+    # ==========================================================================
+    if level == 0:
+        # Level 0: no coarser level exists, use all fine timesteps
+        N_time = N_fine
+        use_all_fine = True
+        print(f"  Level 0: using all {N_fine} fine timesteps")
+    else:
+        # Level > 0: use coarse timesteps for fine-coarse comparison
+        N_time = N_coarse
+        use_all_fine = False
+        print(f"  Level {level}: using {N_coarse} coarse timesteps")
+    
+    # Construct time grid
+    t = np.linspace(0, T, N_time)
     t_scaled = 2 * t / T - 1  # Map [0, T] → [-1, 1]
     t_vals = np.tile(t_scaled, N_paths)
     
-    # Subsample fine paths to coarse times (every 2nd timestep)
-    # Note: We need exactly N_coarse timesteps, matching paths_coarse
-    paths_fine_subsampled = paths_fine[:, ::2, :]
+    # Select appropriate paths for design matrix
+    if use_all_fine:
+        # Level 0: use all fine paths directly
+        paths_for_design = paths_fine
+    else:
+        # Level > 0: subsample fine paths to coarse times
+        paths_fine_subsampled = paths_fine[:, ::2, :]
+        # Ensure we have exactly N_coarse timesteps
+        if paths_fine_subsampled.shape[1] > N_coarse:
+            paths_fine_subsampled = paths_fine_subsampled[:, :N_coarse, :]
+        paths_for_design = paths_fine_subsampled
     
-    # Ensure we have exactly N_coarse timesteps (handle off-by-one from ::2)
-    if paths_fine_subsampled.shape[1] > N_coarse:
-        paths_fine_subsampled = paths_fine_subsampled[:, :N_coarse, :]
-    
-    basket_vals = paths_fine_subsampled @ basket_weights  # Weighted basket
+    # Compute basket values for spatial coordinates
+    basket_vals = paths_for_design @ basket_weights
     S_scaled = 2 * (basket_vals.flatten() - S_min) / (S_max - S_min) - 1
     
+    # Clip to [-1, 1] to avoid extrapolation issues
+    S_scaled = np.clip(S_scaled, -1.0, 1.0)
+    
     # Build Vandermonde matrices for Legendre polynomials
-    max_degree = max(i for i, _ in basis_pairs)
+    max_degree = max(max(i for i, _ in basis_pairs), max(j for _, j in basis_pairs))
     V_time = legvander(t_vals, max_degree)
     V_space = legvander(S_scaled, max_degree)
     
@@ -190,45 +236,55 @@ def construct_regression_system(
     V_time *= norm_factors[None, :]
     V_space *= norm_factors[None, :]
     
-    # Construct tensor product basis
-    D = np.empty((N_paths * N_coarse, n_basis))
+    # Construct tensor product basis (design matrix D)
+    D = np.empty((N_paths * N_time, n_basis))
     for p, (i1, i2) in enumerate(basis_pairs):
         D[:, p] = V_time[:, i1] * V_space[:, i2]
     
-    # Construct target vector psi = b_fine² - b_coarse²
-    psi = np.empty((N_paths * N_coarse, 1))
+    # ==========================================================================
+    # Construct target vector psi
+    # ==========================================================================
+    psi = np.empty((N_paths * N_time, 1))
+    
     for m in range(N_paths):
-        for n in range(N_coarse):
-            idx = m * N_coarse + n
+        for n in range(N_time):
+            idx = m * N_time + n
             
-            asset_prices_coarse = paths_coarse[m, n]
-            asset_prices_fine = paths_fine_subsampled[m, n]
+            # Get asset prices at this point
+            asset_prices_fine = paths_for_design[m, n]
             
-            # Compute basket prices
-            basket_price_coarse = asset_prices_coarse @ basket_weights
+            # Compute basket price
             basket_price_fine = asset_prices_fine @ basket_weights
             
             # Compute local volatility: sigma_diag @ cov_mat @ sigma_diag
-            sigma_coarse = np.diag(vol * asset_prices_coarse)
             sigma_fine = np.diag(vol * asset_prices_fine)
             
             # Basket absolute variance (in currency units squared)
             var_abs_fine = (sigma_fine @ cov_mat @ sigma_fine).sum() / d**2
-            var_abs_coarse = (sigma_coarse @ cov_mat @ sigma_coarse).sum() / d**2
             
-            # Convert to relative volatility (percentage) by dividing by basket price
-            # Handle level 0 case where coarse basket might be zero
-            if basket_price_fine > 0:
+            # Convert to relative volatility by dividing by basket price squared
+            if basket_price_fine > 1e-10:
                 b_fine_sq = var_abs_fine / (basket_price_fine ** 2)
             else:
                 b_fine_sq = 0.0
-                
-            if basket_price_coarse > 0:
-                b_coarse_sq = var_abs_coarse / (basket_price_coarse ** 2)
-            else:
-                b_coarse_sq = 0.0
             
-            psi[idx] = b_fine_sq - b_coarse_sq
+            if use_all_fine:
+                # Level 0: target is just b_fine² (no coarse subtraction)
+                psi[idx] = b_fine_sq
+            else:
+                # Level > 0: target is b_fine² - b_coarse²
+                asset_prices_coarse = paths_coarse[m, n]
+                basket_price_coarse = asset_prices_coarse @ basket_weights
+                
+                sigma_coarse = np.diag(vol * asset_prices_coarse)
+                var_abs_coarse = (sigma_coarse @ cov_mat @ sigma_coarse).sum() / d**2
+                
+                if basket_price_coarse > 1e-10:
+                    b_coarse_sq = var_abs_coarse / (basket_price_coarse ** 2)
+                else:
+                    b_coarse_sq = 0.0
+                
+                psi[idx] = b_fine_sq - b_coarse_sq
     
     return D, psi
 
@@ -311,10 +367,10 @@ def construct_volatility_surface(c, basis_pairs, S_min, S_max, T, max_degree):
         
         # Check for negative variance (numerical issue or poor fit)
         if np.any(h < 0):
-            idx = np.unravel_index(np.argmin(h), h.shape)
+            idx = np.unravel_index(np.argmin(h), h.shape) if hasattr(h, 'shape') and h.ndim > 0 else ()
             bad_t = np.array(t)[idx] if np.ndim(t) > 0 else t
             bad_S = np.array(S)[idx] if np.ndim(S) > 0 else S
-            bad_h = h[idx]
+            bad_h = h[idx] if hasattr(h, '__getitem__') and idx else h
             print(f"⚠️  Negative variance h² = {bad_h:.6e} at t={bad_t:.3f}, S={bad_S:.2f}")
         
         return np.sqrt(np.maximum(h, 0.0))  # Clamp to avoid NaN
