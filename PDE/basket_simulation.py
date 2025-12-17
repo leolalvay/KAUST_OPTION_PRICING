@@ -1,5 +1,5 @@
 # This file is based on DM_utils_ML.py from Amelie's work.
-# Fixed by Wadoud (December 2024) to handle Level 0 correctly in MLMC.
+
 
 """
 Basket Option Simulation and Volatility Surface Estimation
@@ -9,7 +9,7 @@ Provides tools for:
 2. Constructing polynomial regression systems for volatility fitting
 3. Building projected volatility surfaces b(t,S) from estimated coefficients
 
-Key Fix (December 2024):
+Key Fix:
 ------------------------
 Level 0 in MLMC requires special handling. At Level 0:
 - There is no coarser level to compare against
@@ -134,11 +134,13 @@ def construct_regression_system(
     
     Builds the system D @ c = psi where:
     - D: Design matrix of Legendre polynomials evaluated on paths
-    - psi: Target vector of volatility differences (b_fine² - b_coarse²)
+    - psi: Target vector of volatility values h = b²S² (absolute variance)
     
-    The volatility b² for a basket is computed as:
-        b² = (1/d²) * sum_{i,j} sigma_i sigma_j rho_{ij}
-    where sigma_i = vol_i * S_i and rho_{ij} from cov_mat.
+    The quantity h(t,S) = b²(t,S) * S² is computed as:
+        h = (1/d²) * sum_{i,j} (sigma_i * X_i) * rho_{ij} * (sigma_j * X_j)
+    
+    This is the ABSOLUTE variance in currency units squared, matching what
+    Laplace approximation computes (values ~1000-2000 for typical parameters).
     
     Parameters
     ----------
@@ -161,26 +163,21 @@ def construct_regression_system(
     level : int, default 1
         MLMC level. Level 0 requires special handling:
         - Use ALL fine timesteps (not subsampled)
-        - Target is b_fine² only (no coarse subtraction)
+        - Target is h_fine only (no coarse subtraction)
         
     Returns
     -------
     D : np.ndarray, shape (N_paths * N_time, n_basis)
         Design matrix with Legendre polynomials
     psi : np.ndarray, shape (N_paths * N_time, 1)
-        Target volatility values or differences
+        Target volatility values h = b²S² or differences h_fine - h_coarse
         
     Notes
     -----
     - For level > 0: Fine paths are subsampled to coarse timesteps
     - For level == 0: ALL fine timesteps are used (critical fix!)
     - Legendre polynomials are orthonormalised on [-1, 1]
-    - Scaling ensures numerical stability of regression
-    
-    The Level 0 fix is essential because:
-    - At level 0, coarse paths don't exist (they're zeros)
-    - Without using all fine timesteps, we'd have only ~2 time points
-    - Fitting a degree-3 polynomial with 2 points gives condition ~10^16
+    - We compute h = b²S² (absolute variance), NOT b² (relative variance)
     """
     N_paths, N_fine, d = paths_fine.shape
     _, N_coarse, _ = paths_coarse.shape
@@ -188,9 +185,6 @@ def construct_regression_system(
     
     print(f"Basis pairs: {basis_pairs}")
     
-    # ==========================================================================
-    # CRITICAL FIX: Level 0 uses ALL fine timesteps
-    # ==========================================================================
     if level == 0:
         # Level 0: no coarser level exists, use all fine timesteps
         N_time = N_fine
@@ -244,6 +238,10 @@ def construct_regression_system(
     # ==========================================================================
     # Construct target vector psi
     # ==========================================================================
+    # IMPORTANT: We compute h(t,S) = b²(t,S) * S² which is the ABSOLUTE variance
+    # in currency units squared. This matches what Laplace computes (~1000-2000).
+    # We do NOT divide by S² here - that would give relative variance (~0.02).
+    # ==========================================================================
     psi = np.empty((N_paths * N_time, 1))
     
     for m in range(N_paths):
@@ -253,38 +251,37 @@ def construct_regression_system(
             # Get asset prices at this point
             asset_prices_fine = paths_for_design[m, n]
             
-            # Compute basket price
-            basket_price_fine = asset_prices_fine @ basket_weights
+            # Compute h = b²S² (absolute variance in currency units)
+            # 
+            # For basket S = Σᵢ wᵢ Xᵢ with dXᵢ = r Xᵢ dt + σᵢ Xᵢ dWᵢ:
+            #   Var(dS) = Σᵢⱼ wᵢ wⱼ σᵢ Xᵢ σⱼ Xⱼ ρᵢⱼ dt
+            #   
+            # So h = b²S² = (w ⊙ σ ⊙ X)ᵀ Σ (w ⊙ σ ⊙ X)
+            # where ⊙ denotes element-wise multiplication.
+            #
+            # With basket_weights = [1,1,1], this simplifies to:
+            #   h = (σ ⊙ X)ᵀ Σ (σ ⊙ X)
+            #
+            # NOTE: We do NOT divide by d² here. The d² division in FML_utils.py
+            # assumes normalised weights [1/d, ..., 1/d], but our weights are [1,1,1].
+            # Laplace returns values ~1000-2000, which matches (σX)ᵀΣ(σX) ≈ 1355.
             
-            # Compute local volatility: sigma_diag @ cov_mat @ sigma_diag
-            sigma_fine = np.diag(vol * asset_prices_fine)
+            # Element-wise: (basket_weight * volatility * asset_price)
+            w_sigma_X_fine = basket_weights * vol * asset_prices_fine  # Shape: (d,)
             
-            # Basket absolute variance (in currency units squared)
-            var_abs_fine = (sigma_fine @ cov_mat @ sigma_fine).sum() / d**2
-            
-            # Convert to relative volatility by dividing by basket price squared
-            if basket_price_fine > 1e-10:
-                b_fine_sq = var_abs_fine / (basket_price_fine ** 2)
-            else:
-                b_fine_sq = 0.0
+            # h = (w⊙σ⊙X)ᵀ Σ (w⊙σ⊙X)
+            h_fine = w_sigma_X_fine @ cov_mat @ w_sigma_X_fine
             
             if use_all_fine:
-                # Level 0: target is just b_fine² (no coarse subtraction)
-                psi[idx] = b_fine_sq
+                # Level 0: target is just h_fine (no coarse subtraction)
+                psi[idx] = h_fine
             else:
-                # Level > 0: target is b_fine² - b_coarse²
+                # Level > 0: target is h_fine - h_coarse (telescoping difference)
                 asset_prices_coarse = paths_coarse[m, n]
-                basket_price_coarse = asset_prices_coarse @ basket_weights
+                w_sigma_X_coarse = basket_weights * vol * asset_prices_coarse
+                h_coarse = w_sigma_X_coarse @ cov_mat @ w_sigma_X_coarse
                 
-                sigma_coarse = np.diag(vol * asset_prices_coarse)
-                var_abs_coarse = (sigma_coarse @ cov_mat @ sigma_coarse).sum() / d**2
-                
-                if basket_price_coarse > 1e-10:
-                    b_coarse_sq = var_abs_coarse / (basket_price_coarse ** 2)
-                else:
-                    b_coarse_sq = 0.0
-                
-                psi[idx] = b_fine_sq - b_coarse_sq
+                psi[idx] = h_fine - h_coarse
     
     return D, psi
 
@@ -320,11 +317,12 @@ def fit_volatility_coefficients(D, psi):
 
 def construct_volatility_surface(c, basis_pairs, S_min, S_max, T, max_degree):
     """
-    Construct the projected volatility surface b(t, S) from fitted coefficients.
+    Construct the projected volatility surface from fitted coefficients.
     
     The surface is represented as:
-        b²(t, S) = sum_{p} c_p * P_{i1}(t) * P_{i2}(S)
-    where P are orthonormalised Legendre polynomials.
+        h(t, S) = sum_{p} c_p * P_{i1}(t) * P_{i2}(S)
+    where P are orthonormalised Legendre polynomials and h = b²S² is the
+    absolute variance in currency units squared.
     
     Parameters
     ----------
@@ -342,14 +340,16 @@ def construct_volatility_surface(c, basis_pairs, S_min, S_max, T, max_degree):
     Returns
     -------
     b_surface : callable
-        Function b(t, S) that evaluates volatility surface.
+        Function b(t, S) that evaluates sqrt(h(t,S)) = b(t,S) * S.
+        Note: This returns sqrt(h), not b itself. To get b, divide by S.
         Accepts scalars or arrays for t and S.
         
     Notes
     -----
     - Input (t, S) are mapped to [-1, 1] before polynomial evaluation
-    - Returns sqrt(h) where h = sum of polynomial basis functions
+    - Returns sqrt(h) where h = b²S² is the fitted absolute variance
     - Warns if h becomes negative (indicates poor fit or extrapolation)
+    - For comparison with Laplace, use h = b_surface(t,S)² directly
     """
     def b_surface(t, S):
         # Scale to [-1, 1]
@@ -371,7 +371,7 @@ def construct_volatility_surface(c, basis_pairs, S_min, S_max, T, max_degree):
             bad_t = np.array(t)[idx] if np.ndim(t) > 0 else t
             bad_S = np.array(S)[idx] if np.ndim(S) > 0 else S
             bad_h = h[idx] if hasattr(h, '__getitem__') and idx else h
-            print(f"⚠️  Negative variance h² = {bad_h:.6e} at t={bad_t:.3f}, S={bad_S:.2f}")
+            print(f"⚠️  Negative h = {bad_h:.6e} at t={bad_t:.3f}, S={bad_S:.2f}")
         
         return np.sqrt(np.maximum(h, 0.0))  # Clamp to avoid NaN
     
