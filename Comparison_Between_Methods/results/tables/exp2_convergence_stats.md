@@ -8,7 +8,7 @@
 | Mean L2 error (individual) | 0.183579 |
 | Std L2 error | 0.003359 |
 | Final running avg L2 | 0.183491 |
-| Mean time per run | 0.23 s |
+| Mean time per run | 0.22 s |
 | Total computation time | 4.5 s |
 
 ## Running Average L2 Errors
