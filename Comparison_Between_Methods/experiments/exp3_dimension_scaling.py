@@ -262,8 +262,8 @@ def run_experiment(
         # L2 errors
         ax2a.plot(dimensions, l2_errors, 'bo-', markersize=10, linewidth=2)
         ax2a.set_xlabel('Number of Assets (d)', fontsize=12)
-        ax2a.set_ylabel('L2 Relative Error', fontsize=12)
-        ax2a.set_title('L2 Error vs Dimension', fontsize=13)
+        ax2a.set_ylabel(r'$L^2$ Relative Error', fontsize=12)
+        ax2a.set_title(r'$L^2$ Error vs Dimension', fontsize=13)
         ax2a.grid(True, alpha=0.3)
         ax2a.set_xticks(dimensions)
         

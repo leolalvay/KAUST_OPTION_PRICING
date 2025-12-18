@@ -115,7 +115,7 @@ def plot_mlmc_convergence(
     
     ax3.plot(range(1, n_runs + 1), l2_errors, 'b-o', markersize=5)
     ax3.set_xlabel('Number of MLMC Runs', fontsize=11)
-    ax3.set_ylabel('L2 Error (to Laplace)', fontsize=11)
+    ax3.set_ylabel(r'$L^2$ Error (to Laplace)', fontsize=11)
     ax3.set_title('Convergence with Averaging', fontsize=12)
     ax3.grid(True, alpha=0.3)
     
@@ -192,7 +192,7 @@ def plot_error_vs_time(
         )
     
     ax.set_xlabel('Computation Time (s)', fontsize=12)
-    ax.set_ylabel('L2 Relative Error', fontsize=12)
+    ax.set_ylabel(r'$L^2$ Relative Error', fontsize=12)
     ax.set_title('Accuracy vs Computational Cost', fontsize=13)
     
     # Log scale if range is large
@@ -275,7 +275,7 @@ def plot_dimension_scaling(
             ax2.semilogy(dimensions, laplace_errors, 'rs--', linewidth=2, markersize=8, label='Laplace')
         
         ax2.set_xlabel('Number of Assets (d)', fontsize=12)
-        ax2.set_ylabel('L2 Relative Error', fontsize=12)
+        ax2.set_ylabel(r'$L^2$ Relative Error', fontsize=12)
         ax2.set_title('Accuracy Scaling', fontsize=13)
         ax2.legend(fontsize=10)
         ax2.grid(True, alpha=0.3, which='both')

@@ -241,14 +241,14 @@ def run_experiment(
         fig3, ax = plt.subplots(figsize=(10, 6))
         
         n_vals = np.arange(1, n_runs + 1)
-        ax.semilogy(n_vals, l2_errors_running, 'b-o', markersize=5, label='Running Average L2 Error')
-        
+        ax.semilogy(n_vals, l2_errors_running, 'b-o', markersize=5, label=r'Running Average $L^2$ Error')
+
         # Add 1/sqrt(n) reference
         ref = l2_errors_running[0] / np.sqrt(n_vals)
         ax.semilogy(n_vals, ref, 'r--', alpha=0.7, label=r'Reference: $\propto 1/\sqrt{n}$')
-        
+
         ax.set_xlabel('Number of Runs', fontsize=12)
-        ax.set_ylabel('L2 Relative Error', fontsize=12)
+        ax.set_ylabel(r'$L^2$ Relative Error', fontsize=12)
         ax.set_title('MLMC Convergence Rate', fontsize=13)
         ax.legend(fontsize=10)
         ax.grid(True, alpha=0.3, which='both')

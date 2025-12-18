@@ -438,7 +438,7 @@ def plot_summary_panel(
     
     plt.suptitle(
         f'MLMC vs Laplace Comparison\n'
-        f'L2 Error: {metrics["l2_relative_error"]:.4f}, '
+        rf'$L^2$ Error: {metrics["l2_relative_error"]:.4f}, '
         f'Mean Rel. Diff: {metrics["mean_relative_difference"]*100:.2f}%',
         fontsize=12
     )

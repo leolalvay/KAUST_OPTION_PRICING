@@ -356,11 +356,11 @@ def run_experiment(
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
             
             # L2 error
-            ax1.plot(np.array(values)[valid], np.array(l2_errors)[valid], 
+            ax1.plot(np.array(values)[valid], np.array(l2_errors)[valid],
                     'o-', color=color, markersize=8, linewidth=2)
             ax1.set_xlabel(label, fontsize=12)
-            ax1.set_ylabel('L2 Relative Error', fontsize=12)
-            ax1.set_title(f'L2 Error vs {label}', fontsize=13)
+            ax1.set_ylabel(r'$L^2$ Relative Error', fontsize=12)
+            ax1.set_title(rf'$L^2$ Error vs {label}', fontsize=13)
             ax1.grid(True, alpha=0.3)
             
             # Computation times
@@ -401,10 +401,10 @@ def run_experiment(
             valid = [not np.isnan(e) for e in l2_errors]
             
             ax = axes[idx]
-            ax.plot(np.array(values)[valid], np.array(l2_errors)[valid], 
+            ax.plot(np.array(values)[valid], np.array(l2_errors)[valid],
                    'o-', color=color, markersize=8, linewidth=2)
             ax.set_xlabel(label, fontsize=11)
-            ax.set_ylabel('L2 Error', fontsize=11)
+            ax.set_ylabel(r'$L^2$ Error', fontsize=11)
             ax.set_title(f'{label}', fontsize=12)
             ax.grid(True, alpha=0.3)
         
