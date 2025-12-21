@@ -84,7 +84,23 @@ class ProblemParameters:
     
     # MLMC parameters
     max_degree: int = 3
-    h0: float = 0.1
+    h0: float = 0.05
+
+    """
+    Note on h0 and max_degree relationship:
+    ---------------------------------------
+    At MLMC level 0, we have N_timesteps = T / h0 time points to fit polynomials
+    up to degree max_degree. To avoid ill-conditioning (Runge phenomenon), we need:
+
+        h0 ≤ T / (2 * max_degree + 5)
+
+    Examples for T = 0.5:
+        max_degree = 3  →  h0 ≤ 0.045  (h0 = 0.1 is marginal but works)
+        max_degree = 4  →  h0 ≤ 0.038
+        max_degree = 5  →  h0 ≤ 0.033  (h0 = 0.025 recommended)
+
+    If you see 10^12 blow-ups or negative correlations, reduce h0.
+    """
     
     # Reproducibility
     random_seed: int = 42

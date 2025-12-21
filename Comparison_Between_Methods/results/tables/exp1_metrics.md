@@ -4,12 +4,12 @@
 
 | Metric | Value |
 |--------|-------|
-| L2 relative error | 0.191101 |
-| L∞ error | 512.3970 |
-| Mean absolute difference | 235.1078 |
-| Mean relative difference | 16.10% |
-| Bias (MLMC - Laplace) | -89.7278 |
-| Pearson correlation | 0.9482 |
+| L2 relative error | 0.200442 |
+| L∞ error | 544.0810 |
+| Mean absolute difference | 244.3400 |
+| Mean relative difference | 16.63% |
+| Bias (MLMC - Laplace) | -105.2961 |
+| Pearson correlation | 0.9078 |
 | Valid grid fraction | 100.0% |
 
 ## Parameters
@@ -36,7 +36,7 @@ Problem Parameters (Bayer et al. 2017, Eq. 56)
 
   PDE grid: 50 × 100
   MLMC max degree: 3
-  MLMC coarsest timestep: h0 = 0.1
+  MLMC coarsest timestep: h0 = 0.025
   Random seed: 42
 ============================================================
 ```
