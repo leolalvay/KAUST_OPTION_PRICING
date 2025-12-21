@@ -120,7 +120,7 @@ The high correlation with significant bias suggests:
 - `exp1_metrics.md`: Summary statistics table
 
 ### Plot Verification Status
-⚠️ **NEEDS REVIEW:** Visually inspect the 3D surfaces to confirm they look physically reasonable (smooth, positive, appropriate magnitude range 700–2500).
+Reviewed
 
 ---
 
@@ -220,7 +220,7 @@ The experiment generates three plots that need visual verification:
 - `exp2_convergence_stats.md`
 
 ### Plot Verification Status
-⚠️ **NEEDS REVIEW:** All three plots need visual inspection to confirm the convergence behaviour is correctly displayed and interpreted.
+Reviewed
 
 ---
 
