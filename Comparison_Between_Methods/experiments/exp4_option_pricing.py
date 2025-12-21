@@ -384,20 +384,34 @@ def run_experiment(
         # 3. Time evolution of prices
         fig3, (ax3a, ax3b) = plt.subplots(1, 2, figsize=(14, 5))
         
-        # Select a few spot values
-        spot_indices = [
-            np.argmin(np.abs(S_pde_grid - params.S0 * 0.8)),
-            np.argmin(np.abs(S_pde_grid - params.S0)),
-            np.argmin(np.abs(S_pde_grid - params.K)),
-            np.argmin(np.abs(S_pde_grid - params.S0 * 1.2)),
-        ]
+        # Select spot values - avoid duplicates when S0 == K
+        spot_multipliers = [0.8, 0.9, 1.0, 1.2]  # ITM, slightly ITM, ATM, OTM
+        spot_indices = []
+        spot_values_used = set()
+        
+        for mult in spot_multipliers:
+            target_S = params.S0 * mult
+            idx = np.argmin(np.abs(S_pde_grid - target_S))
+            
+            # Only add if we haven't used this index yet
+            if idx not in spot_values_used:
+                spot_indices.append(idx)
+                spot_values_used.add(idx)
+        
+        # Create labels showing actual grid values (not target values)
         spot_labels = [f'S={S_pde_grid[i]:.0f}' for i in spot_indices]
-        colors = ['blue', 'green', 'orange', 'red']
+        colors = ['blue', 'green', 'orange', 'red'][:len(spot_indices)]
         
-        for idx, (si, label, col) in enumerate(zip(spot_indices, spot_labels, colors)):
-            ax3a.plot(t_pde_grid, V_mlmc[:, si], '-', color=col, linewidth=2, label=f'MLMC {label}')
-            ax3a.plot(t_pde_grid, V_laplace[:, si], '--', color=col, linewidth=1.5, alpha=0.7)
+        for si, label, col in zip(spot_indices, spot_labels, colors):
+            # Plot Laplace FIRST (underneath)
+            ax3a.plot(t_pde_grid, V_laplace[:, si], '--', color=col, linewidth=3, alpha=0.5)
+            # Plot MLMC on top (thinner, solid)
+            ax3a.plot(t_pde_grid, V_mlmc[:, si], '-', color=col, linewidth=1.5, label=f'{label}')
         
+        # Add legend entries for line styles
+        #ax3a.plot([], [], 'k-', linewidth=1.5, label='MLMC (solid)')
+        #ax3a.plot([], [], 'k--', linewidth=3, alpha=0.5, label='Laplace (dashed)')
+
         ax3a.set_xlabel('Time (t)', fontsize=12)
         ax3a.set_ylabel('Option Value', fontsize=12)
         ax3a.set_title('Option Value vs Time (solid=MLMC, dashed=Laplace)', fontsize=13)
@@ -405,7 +419,7 @@ def run_experiment(
         ax3a.grid(True, alpha=0.3)
         
         # Value differences over time
-        for idx, (si, label, col) in enumerate(zip(spot_indices, spot_labels, colors)):
+        for si, label, col in zip(spot_indices, spot_labels, colors):
             diff_t = V_mlmc[:, si] - V_laplace[:, si]
             ax3b.plot(t_pde_grid, diff_t, '-', color=col, linewidth=2, label=label)
         
