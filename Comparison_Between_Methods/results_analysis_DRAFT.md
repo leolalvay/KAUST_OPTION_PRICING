@@ -1,6 +1,6 @@
 # Results Analysis: MLMC vs Laplace Volatility Surface Comparison
 
-**Author:** Wadoud (KAUST Internship)  
+**Author:** Wadoud Charbak  
 **Date:** December 2024  
 **Project:** Multilevel Regression + Markovian Projection for American Options  
 **Status:** Initial analysis - requires plot verification before presentation
@@ -302,7 +302,7 @@ Run both methods for $d = 2, 3, 5, 10$ assets with appropriately constructed cor
 - `exp3_dimension_scaling.md`
 
 ### Plot Verification Status
-⚠️ **NEEDS CONFIRMATION:** Verify plots accurately represent the tabulated data.
+Reviewed
 
 ---
 
@@ -397,7 +397,7 @@ Despite ~18% L² error in volatility surfaces, **option prices agree within 0.2%
 - `exp4_option_prices.md`
 
 ### Plot Verification Status
-⚠️ **NEEDS CONFIRMATION:** Verify plots show the excellent ITM/ATM agreement clearly.
+Reviewed -- Looks good!
 
 ---
 
