@@ -101,29 +101,61 @@ def plot_mlmc_convergence(
     cbar2 = plt.colorbar(im2, ax=ax2, shrink=0.8)
     cbar2.set_label('Std Dev', fontsize=10)
     
-    # 3. Convergence of L2 error
+    # 3. Convergence analysis: decompose into bias and variance
     ax3 = axes[2]
     
-    # Compute running average L2 error to Laplace
+    # Compute running average L² error to Laplace (total error)
     l2_errors = []
+    # Compute running standard error of MLMC mean (stochastic component)
+    std_errors = []
+    
     for n in range(1, n_runs + 1):
+        # Running mean surface
         running_mean = np.mean(all_b_squared[:n], axis=0)
+        
+        # Total L² error to Laplace
         diff = running_mean - result_laplace.b_squared_values
         valid = np.isfinite(diff)
         l2 = np.sqrt(np.mean(diff[valid] ** 2))
         l2_errors.append(l2)
+        
+        # Standard error of the mean (stochastic uncertainty)
+        if n > 1:
+            # Std across runs, then average over grid, divided by sqrt(n)
+            std_across_runs = np.std(all_b_squared[:n], axis=0, ddof=1)
+            mean_std = np.mean(std_across_runs[np.isfinite(std_across_runs)])
+            std_errors.append(mean_std / np.sqrt(n))
+        else:
+            # For n=1, estimate from later runs
+            std_across_runs = np.std(all_b_squared, axis=0, ddof=1)
+            mean_std = np.mean(std_across_runs[np.isfinite(std_across_runs)])
+            std_errors.append(mean_std)
     
-    ax3.plot(range(1, n_runs + 1), l2_errors, 'b-o', markersize=5)
-    ax3.set_xlabel('Number of MLMC Runs', fontsize=11)
-    ax3.set_ylabel(r'$L^2$ Error (to Laplace)', fontsize=11)
-    ax3.set_title('Convergence with Averaging', fontsize=12)
-    ax3.grid(True, alpha=0.3)
-    
-    # Add 1/sqrt(n) reference line
     n_vals = np.arange(1, n_runs + 1)
-    ref_line = l2_errors[0] / np.sqrt(n_vals)
-    ax3.plot(n_vals, ref_line, 'r--', alpha=0.7, label=r'$\propto 1/\sqrt{n}$')
-    ax3.legend(fontsize=9)
+    
+    # Plot total error (bias-dominated, stays flat)
+    ax3.plot(n_vals, l2_errors, 'b-o', markersize=5, linewidth=2,
+             label=f'Total L² error (converges to {l2_errors[-1]:.1f})')
+    
+    # Plot stochastic component (follows 1/√n)
+    ax3.plot(n_vals, std_errors, 'g-s', markersize=4, linewidth=1.5,
+             alpha=0.8, label='Stochastic uncertainty (std err)')
+    
+    # Add reference line for 1/√n scaling (matched to stochastic component)
+    ref_line = std_errors[0] / np.sqrt(n_vals)
+    ax3.plot(n_vals, ref_line, 'g--', alpha=0.5, linewidth=1,
+             label=r'Reference: $\propto 1/\sqrt{n}$')
+    
+    # Add horizontal line showing converged bias
+    ax3.axhline(y=l2_errors[-1], color='b', linestyle=':', alpha=0.5,
+                label=f'Systematic bias ≈ {l2_errors[-1]:.1f}')
+    
+    ax3.set_xlabel('Number of MLMC Runs', fontsize=11)
+    ax3.set_ylabel('Error / Uncertainty', fontsize=11)
+    ax3.set_title('Error Decomposition', fontsize=12)
+    ax3.set_yscale('log')
+    ax3.grid(True, alpha=0.3, which='both')
+    ax3.legend(fontsize=8, loc='upper right')
     
     plt.suptitle(f'MLMC Convergence Analysis ({n_runs} runs)', fontsize=13, y=1.02)
     plt.tight_layout()

@@ -237,22 +237,51 @@ def run_experiment(
         )
         plt.close(fig2)
         
-        # 3. Convergence rate analysis plot
+        # 3. Convergence rate analysis plot - Error Decomposition
         fig3, ax = plt.subplots(figsize=(10, 6))
-        
-        n_vals = np.arange(1, n_runs + 1)
-        ax.semilogy(n_vals, l2_errors_running, 'b-o', markersize=5, label=r'Running Average $L^2$ Error')
 
-        # Add 1/sqrt(n) reference
-        ref = l2_errors_running[0] / np.sqrt(n_vals)
-        ax.semilogy(n_vals, ref, 'r--', alpha=0.7, label=r'Reference: $\propto 1/\sqrt{n}$')
+        n_vals = np.arange(1, n_runs + 1)
+
+        # Compute stochastic uncertainty (standard error of the mean)
+        # Using all_b_squared which is already available
+        std_across_runs = np.std(all_b_squared, axis=0)  # Std at each grid point
+        mean_std = np.mean(std_across_runs[np.isfinite(std_across_runs)])
+        mean_b2 = np.mean(np.abs(result_laplace.b_squared_values[np.isfinite(result_laplace.b_squared_values)]))
+        base_std_error = mean_std / mean_b2  # Relative standard deviation
+
+        # Stochastic uncertainty decreases as 1/sqrt(n)
+        std_errors = base_std_error / np.sqrt(n_vals)
+
+        # Convert to percentages
+        l2_errors_pct = np.array(l2_errors_running) * 100
+        std_errors_pct = std_errors * 100
+
+        # Plot total error (bias-dominated, stays flat)
+        ax.semilogy(n_vals, l2_errors_pct, 'b-o', markersize=5, linewidth=2,
+                    label=f'Total L² error (bias ≈ {l2_errors_running[-1]:.1%})')
+
+        # Plot stochastic component (follows 1/√n)
+        ax.semilogy(n_vals, std_errors_pct, 'g-s', markersize=4, linewidth=1.5,
+                    alpha=0.8, label='Stochastic uncertainty')
+        
+        # Add 1/√n reference line (matched to stochastic component)
+        ref_line_pct = std_errors_pct[0] / np.sqrt(n_vals)
+        ax.semilogy(n_vals, ref_line_pct, 'r--', alpha=0.5, linewidth=1,
+                    label=r'Reference: $\propto 1/\sqrt{n}$')
+
+        # Add horizontal line showing converged bias
+        ax.axhline(y=l2_errors_pct[-1], color='b', linestyle=':', alpha=0.5)
 
         ax.set_xlabel('Number of Runs', fontsize=12)
-        ax.set_ylabel(r'$L^2$ Relative Error', fontsize=12)
-        ax.set_title('MLMC Convergence Rate', fontsize=13)
-        ax.legend(fontsize=10)
+        ax.set_ylabel('Relative Error / Uncertainty (%)', fontsize=12)
+        ax.set_title('MLMC Convergence: Bias vs Stochastic Error', fontsize=13)
+        ax.legend(fontsize=10, loc='upper right')
         ax.grid(True, alpha=0.3, which='both')
-        
+
+        # Format y-axis ticks as percentages
+        from matplotlib.ticker import FuncFormatter
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.1f}%'))
+
         if save_results:
             fig3.savefig(figures_dir / "exp2_convergence_rate.png", dpi=150, bbox_inches='tight')
         if show_plots:
