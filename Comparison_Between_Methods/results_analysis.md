@@ -626,3 +626,36 @@ Comparison_Between_Methods/experiments/
 ---
 
 *Document generated from analysis session on December 2024*
+
+---
+
+## Analysis Log
+
+### Experiment 1: ✅ Analysed
+
+**Findings:**
+- Tested max_degree values 3, 4, 5 - higher degrees caused numerical blow-up (10¹² values) due to insufficient timesteps at coarse MLMC levels
+- Settled on max_degree = 3 with h0 = 0.1 (stable and accurate)
+- Identified root cause of ~19% L² error: **dynamic range compression** from non-uniform Monte Carlo sampling
+- MLMC range ~1250-1500 vs Laplace range ~950-2100 (MLMC "squashes" the S² dependence)
+- High correlation (0.948) confirms methods agree in shape, not magnitude
+- This is a fundamental limitation of polynomial regression with concentrated samples, not a bug
+
+**No code changes required.**
+
+### Experiment 2: ✅ Analysed
+
+**Findings:**
+- Confirmed ~19% discrepancy is deterministic (std across runs only 0.34%)
+- Stochastic uncertainty follows 1/√n as expected
+- Adding more MLMC runs cannot reduce the bias
+
+**Code changes:**
+- Updated `plot_mlmc_convergence()` in `visualisation/convergence_plots.py` (panel 3)
+- Updated convergence rate plot in `experiments/exp2_mlmc_convergence.py`
+- Fix: Replaced misleading 1/√n reference with proper error decomposition showing bias (flat, ~19%) vs stochastic uncertainty (decreasing, ~0.6% → 0.1%)
+- Added percentage formatting to y-axis
+
+---
+
+*Analysis completed: December 2024*
