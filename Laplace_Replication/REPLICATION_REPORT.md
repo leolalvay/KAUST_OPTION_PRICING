@@ -4,7 +4,7 @@
 
 ### Executive Summary
 
-We successfully replicated the Laplace approximation methodology from Bayer et al. (2017) for pricing American basket options. Our implementation reproduces their key quantitative results within acceptable tolerances.
+We have attempted to replicate the Laplace approximation methodology from Bayer et al. (2017) for pricing American basket options. Our implementation reproduces their key quantitative results within acceptable tolerances.
 
 ---
 
