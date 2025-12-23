@@ -17,7 +17,7 @@ from .common import (
     format_metrics_table,
     save_metrics_markdown,
 )
-from .mlmc_wrapper import estimate_volatility_mlmc
+from .mlmc_ot_estimator import estimate_volatility_mlmc
 from .laplace_wrapper import estimate_volatility_laplace
 
 __all__ = [
