@@ -49,7 +49,7 @@ $$\bar{b}^2(t, s) = \mathbb{E}\left[\left(\sum_i w_i \sigma_i X_t^{(i)}\right)^2
 
 ### Error Metrics
 
-- **L² Relative Error:** $\|\bar{b}^2_{\text{MLMC}} - \bar{b}^2_{\text{Laplace}}\|_2 / \|\bar{b}^2_{\text{mean}}\|_2$ — average error across surface
+- **L² Relative Error:** $\|\bar{b}^2_{\text{MLMC}} - \bar{b}^2_{\text{Laplace}}\|_2 / \|\bar{b}^2_{\text{mean}}\|_2$ — average error across surface, similar to root-mean-squared. 
 - **L∞ Error:** $\max|\bar{b}^2_{\text{MLMC}} - \bar{b}^2_{\text{Laplace}}|$ — worst-case error
 - **Correlation:** Pearson correlation between surfaces — measures shape agreement
 
@@ -101,6 +101,8 @@ K = 300 (ATM)
 **Practical Implications:** For applications requiring accurate absolute values of $\bar{b}^2$ across the full S domain, the Laplace method provides better fidelity to the theoretical scaling. However, both surfaces agree on the direction and relative magnitude of changes, which is often sufficient for pricing applications where the surface enters as an intermediate quantity.
 
 **Validation:** ✅ Both surfaces seem to be physically reasonable: smooth, positive throughout, and in the expected magnitude range (paper's Figure 1a shows ~700-2500). The MLMC surface shows no boundary instabilities or negative values, confirming numerical stability with max_degree = 3. 
+
+**Notes:** When attempting any max_degree > 3, this has a tendacy to horrifically blow up. I have yet to solve the reason as to why this occurs. UPDATE ACCORDINGLY
 
 ---
 
