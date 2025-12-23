@@ -276,7 +276,7 @@ $$\Delta W_n^{\text{coarse}} = \Delta W_{2n}^{\text{fine}} + \Delta W_{2n+1}^{\t
 
 ## 6. Optimal Transport Map Dimensions
 
-### The Key Insight Your Supervisor Likely Wants
+### The Key Insight 
 
 **The Brenier map operates in the full d-dimensional asset space, NOT in the 1D projected space!**
 
