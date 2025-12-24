@@ -1170,3 +1170,127 @@ def estimate_volatility_mlmc(
         mlmc_levels=params.max_degree + 1,
         domain_bounds=(s_min, s_max)
     )
+
+
+def estimate_volatility_mlmc_multiple_runs(
+    params,
+    t_grid: np.ndarray,
+    s_grid: np.ndarray,
+    n_runs: int = 20,
+    base_seed: int = 42,
+    use_ot: bool = True,
+    C: int = 80,
+    batch_size: int = 50,
+    M_pilot_domain: int = 10000,
+    M_pilot_ot: int = 500,
+    verbose: bool = True
+) -> Tuple[VolatilitySurfaceResult, np.ndarray, np.ndarray]:
+    """
+    Run MLMC estimation multiple times for convergence study.
+
+    Parameters
+    ----------
+    params : ProblemParameters
+        Problem configuration.
+    t_grid : np.ndarray
+        Time grid.
+    s_grid : np.ndarray
+        Basket value grid.
+    n_runs : int
+        Number of independent runs.
+    base_seed : int
+        Base random seed (each run uses base_seed + i).
+    use_ot : bool
+        If True, use Gaussian-Brenier OT coupling (default True).
+    C : int, optional
+        Base sample size scaling factor (default 80).
+    batch_size : int, optional
+        Batch size for memory-efficient processing (default 50).
+    M_pilot_domain : int, optional
+        Number of pilot paths for domain estimation (default 10000).
+    M_pilot_ot : int, optional
+        Number of pilot paths for OT map estimation (default 500).
+    verbose : bool
+        Print progress.
+
+    Returns
+    -------
+    mean_result : VolatilitySurfaceResult
+        Result with mean b² surface.
+    all_b_squared : np.ndarray
+        All b² surfaces, shape (n_runs, len(t_grid), len(s_grid)).
+    all_times : np.ndarray
+        Computation times for each run.
+    """
+    if verbose:
+        method_name = "MLMC+OT" if use_ot else "MLMC"
+        print(f"Running {n_runs} {method_name} iterations for convergence study...")
+
+    all_b_squared = []
+    all_times = []
+
+    for i in range(n_runs):
+        seed = base_seed + i
+        if verbose and (i + 1) % 5 == 0:
+            print(f"  Run {i + 1}/{n_runs}...")
+
+        result = estimate_volatility_mlmc(
+            params, t_grid, s_grid,
+            random_seed=seed,
+            use_ot=use_ot,
+            C=C,
+            batch_size=batch_size,
+            M_pilot_domain=M_pilot_domain,
+            M_pilot_ot=M_pilot_ot,
+            verbose=False
+        )
+        all_b_squared.append(result.b_squared_values)
+        all_times.append(result.computation_time)
+
+    all_b_squared = np.array(all_b_squared)
+    all_times = np.array(all_times)
+
+    # Compute mean surface
+    mean_b_squared = np.mean(all_b_squared, axis=0)
+
+    # Create interpolated surface for mean
+    from scipy.interpolate import RectBivariateSpline
+    interp = RectBivariateSpline(t_grid, s_grid, mean_b_squared)
+
+    def mean_b_squared_surface(t: float, s: float) -> float:
+        return float(interp(t, s))
+
+    def mean_b_surface(t: float, s: float) -> float:
+        return np.sqrt(max(mean_b_squared_surface(t, s), 0))
+
+    method_name = "MLMC+OT (mean)" if use_ot else "MLMC (mean)"
+    mean_result = VolatilitySurfaceResult(
+        b_surface=mean_b_surface,
+        b_squared_surface=mean_b_squared_surface,
+        t_grid=t_grid,
+        s_grid=s_grid,
+        b_squared_values=mean_b_squared,
+        method_name=method_name,
+        computation_time=np.sum(all_times),
+        parameters={
+            "n_runs": n_runs,
+            "base_seed": base_seed,
+            "use_ot": use_ot,
+            "max_degree": params.max_degree,
+            "C": C,
+            "M_pilot_domain": M_pilot_domain,
+            "M_pilot_ot": M_pilot_ot if use_ot else None,
+        },
+        coefficients=None,
+        n_samples=n_runs,
+        mlmc_levels=params.max_degree + 1,
+        domain_bounds=result.domain_bounds
+    )
+
+    if verbose:
+        print(f"  Total time: {np.sum(all_times):.1f}s")
+        print(f"  Mean time per run: {np.mean(all_times):.2f}s")
+        std_b_squared = np.std(all_b_squared, axis=0)
+        print(f"  Std of b²: [{np.nanmin(std_b_squared):.2f}, {np.nanmax(std_b_squared):.2f}]")
+
+    return mean_result, all_b_squared, all_times

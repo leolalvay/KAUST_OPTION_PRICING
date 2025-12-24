@@ -36,11 +36,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from config import DEFAULT_PARAMS
-from methods import (
-    estimate_volatility_mlmc,
-    estimate_volatility_laplace,
-)
-from PDE.mlmc_volatility_estimation import estimate_basket_domain
+from methods.mlmc_ot_estimator import estimate_volatility_mlmc, estimate_domain
+from methods.laplace_wrapper import estimate_volatility_laplace
 
 
 def solve_american_pde(b_squared_surface, params, S_grid, t_grid):
@@ -193,16 +190,16 @@ def run_experiment(
         print("-" * 50)
 
     np.random.seed(params.random_seed)
-    S_min, S_max, _ = estimate_basket_domain(
-        S0=params.x0,
+    S_min, S_max = estimate_domain(
+        x0=params.x0,
         T=params.T,
         h0=params.h0,
         r=params.r,
         cov_mat=params.corr_matrix,
         vol=params.sigma,
-        max_degree=params.max_degree,
-        basket_weights=params.P1,
-        N_pilot=10000
+        max_deg=params.max_degree,
+        P1=params.P1,
+        M_pilot=10000
     )
 
     # Define grids WITHIN the domain
@@ -239,6 +236,7 @@ def run_experiment(
     
     result_mlmc = estimate_volatility_mlmc(
         params, t_vol_grid, s_vol_grid,
+        use_ot=True,
         verbose=verbose
     )
     

@@ -41,12 +41,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from config import DEFAULT_PARAMS, create_2d_params
-from methods import (
-    estimate_volatility_mlmc,
-    estimate_volatility_laplace,
-    compute_accuracy_metrics,
-)
-from PDE.mlmc_volatility_estimation import estimate_basket_domain
+from methods.mlmc_ot_estimator import estimate_volatility_mlmc, estimate_domain
+from methods.laplace_wrapper import estimate_volatility_laplace
+from methods.common import compute_accuracy_metrics
 
 
 def run_single_comparison(params, t_grid, s_grid, verbose=False):
@@ -59,7 +56,9 @@ def run_single_comparison(params, t_grid, s_grid, verbose=False):
     """
     try:
         result_mlmc = estimate_volatility_mlmc(
-            params, t_grid, s_grid, verbose=False
+            params, t_grid, s_grid,
+            use_ot=True,
+            verbose=False
         )
         result_laplace = estimate_volatility_laplace(
             params, t_grid, s_grid, verbose=False
@@ -137,16 +136,16 @@ def run_experiment(
         print("-" * 50)
 
     np.random.seed(base_params.random_seed)
-    S_min, S_max, _ = estimate_basket_domain(
-        S0=base_params.x0,
+    S_min, S_max = estimate_domain(
+        x0=base_params.x0,
         T=base_params.T,
         h0=base_params.h0,
         r=base_params.r,
         cov_mat=base_params.corr_matrix,
         vol=base_params.sigma,
-        max_degree=base_params.max_degree,
-        basket_weights=base_params.P1,
-        N_pilot=10000
+        max_deg=base_params.max_degree,
+        P1=base_params.P1,
+        M_pilot=10000
     )
 
     # Common grid WITHIN the domain (with safety margin)

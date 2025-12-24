@@ -34,16 +34,13 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from config import DEFAULT_PARAMS
-from methods import (
-    estimate_volatility_laplace,
-    compute_accuracy_metrics,
-)
-from methods.mlmc_wrapper import estimate_volatility_mlmc_multiple_runs
+from methods.mlmc_ot_estimator import estimate_volatility_mlmc_multiple_runs, estimate_domain
+from methods.laplace_wrapper import estimate_volatility_laplace
+from methods.common import compute_accuracy_metrics
 from visualisation.convergence_plots import (
     plot_mlmc_convergence,
     plot_confidence_bands,
 )
-from PDE.mlmc_volatility_estimation import estimate_basket_domain
 
 
 def run_experiment(
@@ -105,16 +102,16 @@ def run_experiment(
         print("-" * 50)
 
     np.random.seed(params.random_seed)
-    S_min, S_max, _ = estimate_basket_domain(
-        S0=params.x0,
+    S_min, S_max = estimate_domain(
+        x0=params.x0,
         T=params.T,
         h0=params.h0,
         r=params.r,
         cov_mat=params.corr_matrix,
         vol=params.sigma,
-        max_degree=params.max_degree,
-        basket_weights=params.P1,
-        N_pilot=10000
+        max_deg=params.max_degree,
+        P1=params.P1,
+        M_pilot=10000
     )
 
     # Step 2: Define grids WITHIN the domain (with safety margin)
@@ -155,6 +152,7 @@ def run_experiment(
         params, t_grid, s_grid,
         n_runs=n_runs,
         base_seed=params.random_seed,
+        use_ot=True,
         verbose=verbose
     )
     
