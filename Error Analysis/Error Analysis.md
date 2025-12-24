@@ -164,7 +164,7 @@ with discrete approximation using appropriate quadrature weights. Industry bench
 
 ---
 
-## Practical implementation guidance for computational physicists
+## Practical implementation guidance for us at KAUST
 
 For American basket option pricing using Markovian projection with L² polynomial regression:
 
