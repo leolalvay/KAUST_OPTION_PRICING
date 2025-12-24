@@ -542,8 +542,12 @@ def mlmc_level(x0: np.ndarray, T: float, h0: float, level: int,
                     D_n[:, p] = trow[i1] * VS[:, i2]
                 
                 # Instantaneous variance (target for regression)
-                sigma_f = X_f * vol
-                b_sq = ((sigma_f @ cov_mat) * sigma_f).sum(axis=1) / (d ** 2)
+                # h = b²S² = (P1 ⊙ σ ⊙ X)ᵀ Σ (P1 ⊙ σ ⊙ X)
+                # NOTE: We do NOT divide by d². That convention assumes normalised
+                # weights [1/d, ..., 1/d], but we use P1 directly (typically [1,1,1]).
+                # Laplace returns values ~1000-2000, matching this formula.
+                w_sigma_f = X_f * vol * P1  # Shape: (B, d) = wᵢσᵢXᵢ
+                b_sq = ((w_sigma_f @ cov_mat) * w_sigma_f).sum(axis=1)
                 psi_n = b_sq.reshape(-1, 1)
                 
                 G += D_n.T @ D_n
@@ -597,10 +601,11 @@ def mlmc_level(x0: np.ndarray, T: float, h0: float, level: int,
                     D_n[:, p] = trow[i1] * VS[:, i2]
                 
                 # Telescoping difference: b²_fine - b²_coarse
-                sigma_f = X_f * vol
-                b_f = ((sigma_f @ cov_mat) * sigma_f).sum(axis=1) / (d ** 2)
-                sigma_c = X_c * vol
-                b_c = ((sigma_c @ cov_mat) * sigma_c).sum(axis=1) / (d ** 2)
+                # h = b²S² = (P1 ⊙ σ ⊙ X)ᵀ Σ (P1 ⊙ σ ⊙ X)
+                w_sigma_f = X_f * vol * P1
+                b_f = ((w_sigma_f @ cov_mat) * w_sigma_f).sum(axis=1)
+                w_sigma_c = X_c * vol * P1
+                b_c = ((w_sigma_c @ cov_mat) * w_sigma_c).sum(axis=1)
                 psi_n = (b_f - b_c).reshape(-1, 1)
                 
                 G += D_n.T @ D_n
@@ -766,10 +771,11 @@ def mlmc_level_ot(x0: np.ndarray, T: float, h0: float, level: int,
                 D_n[:, p] = trow[i1] * VS[:, i2]
             
             # Telescoping difference: b²_fine - b²_coarse
-            sigma_f = X_f * vol
-            b_f = ((sigma_f @ cov_mat) * sigma_f).sum(axis=1) / (d ** 2)
-            sigma_c = X_c * vol
-            b_c = ((sigma_c @ cov_mat) * sigma_c).sum(axis=1) / (d ** 2)
+            # h = b²S² = (P1 ⊙ σ ⊙ X)ᵀ Σ (P1 ⊙ σ ⊙ X)
+            w_sigma_f = X_f * vol * P1
+            b_f = ((w_sigma_f @ cov_mat) * w_sigma_f).sum(axis=1)
+            w_sigma_c = X_c * vol * P1
+            b_c = ((w_sigma_c @ cov_mat) * w_sigma_c).sum(axis=1)
             psi_n = (b_f - b_c).reshape(-1, 1)
             
             G += D_n.T @ D_n
