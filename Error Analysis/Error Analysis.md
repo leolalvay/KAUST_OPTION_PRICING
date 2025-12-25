@@ -325,7 +325,7 @@ We can validate by:
 2. Comparing these prices
 3. Checking against known benchmarks for simple cases (e.g., single-asset Black-Scholes)
 
-Looking at what my comparison code does so far, this is exactly what we see. The two methods produce near identical option prices.
+Looking at what my comparison code does so far, this is exactly what we see. The two methods produce near identical option prices. They are only off by a few parts of a penny!
 
 ---
 
