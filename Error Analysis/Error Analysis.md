@@ -185,3 +185,208 @@ $$N_\ell = 2\varepsilon^{-2}\sqrt{V_\ell/C_\ell} \sum_{\ell'=0}^{L}\sqrt{V_{\ell
 Error analysis for MLMC and Laplace methods in American basket option pricing rests on **three complementary pillars**: the telescoping sum framework that enables bias estimation from observable level differences rather than unknowable truth; the primal-dual bound methodology that quantifies total Laplace/projection error without explicit component decomposition; and the cross-validation toolkit (Richardson extrapolation, Bland-Altman analysis, convergence studies) that establishes confidence when comparing methods without analytical benchmarks.
 
 The key implementation insight is that **variance of level differences**—not difference of variances—governs MLMC efficiency, with strong coupling creating the correlation that enables $O(\varepsilon^{-2})$ complexity. For Markovian projection, the bound gap serves as the practical error metric, implicitly capturing Laplace approximation error alongside all other numerical approximations. When ground truth is absent, self-convergence studies with Richardson extrapolation provide the most rigorous error estimates, while Bland-Altman analysis quantifies method agreement without privileging either as reference.
+
+-----
+# How We Apply Our Theory to Our Specific Problem
+
+**The preceding sections establish general frameworks for MLMC error analysis and cross-method validation.** Here we ground these abstract tools in the concrete mathematical object we seek to compute: the projected volatility coefficient $\bar{b}^2(t, s)$ for Markovian projection of high-dimensional American basket options.
+
+We emphasise from the outset: **the true projected volatility is unknown**, so we cannot directly measure our error against ground truth. This section explains what we are computing, where errors enter, and how we validate our results despite not knowing the exact answer.
+
+---
+
+## What we are trying to compute
+
+Our goal is to reduce a $d$-dimensional basket option pricing problem to a tractable one-dimensional problem via Gyöngy's Lemma. The key quantity enabling this reduction is the **projected volatility coefficient**, defined through a conditional expectation:
+
+$$\bar{b}^2(t, s) = \mathbb{E}\left[\vec{P}^{\,T} b(t, \vec{X}(t))\, b(t, \vec{X}(t))^T \vec{P} \;\Big|\; \vec{P} \cdot \vec{X}(t) = s,\; \vec{X}(0) = \vec{x}_0\right]$$
+
+In words: given that the basket has value $s$ at time $t$, what is the expected instantaneous variance of the basket?
+
+This conditional expectation cannot be computed analytically for general correlation structures. The best mean-square approximation property tells us that this conditional expectation is equivalent to solving a regression problem: find the function $h(t, s)$ that best predicts the instantaneous variance given only the basket value.
+
+This yields the **theoretical regression formulation**:
+
+$$\bar{b}^2(\cdot, \cdot) = \underset{h \in L^2}{\arg\min} \int_0^T \mathbb{E}\left[\left(\psi(t, \vec{X}(t)) - h(t, \vec{P} \cdot \vec{X}(t))\right)^2 \;\Big|\; \vec{X}(0) = \vec{x}_0\right] dt$$
+
+where $\psi(t, \vec{X}) := \vec{P}^{\,T} b(t, \vec{X})\, b(t, \vec{X})^T \vec{P}$ is the instantaneous projected variance.
+
+This is an infinite-dimensional optimisation problem. We cannot solve it exactly.
+
+*Note: The theoretical regression formulation and its Monte Carlo discretisation correspond to equations (61) and (62) in Amelie's working notes.*
+
+---
+
+## What we actually compute
+
+To make the problem tractable, we introduce several approximations:
+
+**1. Restrict to polynomials:** Instead of searching over all possible functions, we search over polynomials up to some degree:
+
+$$h(t, s) = \sum_p c_p \, P_{i_1}(\tilde{t}) \, P_{i_2}(\tilde{s})$$
+
+where $P_n$ are Legendre polynomials and $\tilde{t}, \tilde{s}$ are rescaled to $[-1, 1]$.
+
+**2. Replace the integral with a sum:** We evaluate at discrete timesteps $t_0, t_1, \ldots, t_{N-1}$.
+
+**3. Replace the expectation with an average:** We simulate $M$ paths and average over them.
+
+**4. Use numerical paths:** We simulate paths using Euler-Maruyama, not exact SDE solutions.
+
+The **computational formulation** becomes:
+
+$$\vec{c} = \underset{\vec{c}}{\arg\min} \frac{1}{M} \sum_{m=1}^{M} \frac{1}{N} \sum_{n=0}^{N-1} \left( \psi(t_n, \hat{\vec{X}}^{(m)}(t_n)) - \sum_{p} c_p\, \phi_p(t_n, S^{(m)}_n) \right)^2$$
+
+where $S^{(m)}_n = \vec{P} \cdot \hat{\vec{X}}^{(m)}(t_n)$ is the basket value along path $m$ at time $t_n$.
+
+This is a standard linear least-squares problem, solved via the normal equations.
+
+---
+
+## Where errors enter
+
+Each approximation introduces error:
+
+| Approximation | Error Source | What Controls It |
+|---------------|--------------|------------------|
+| Polynomial restriction | The true function may not be a polynomial | Polynomial degree |
+| Time discretisation | We sample at discrete times only | Number of timesteps $N$ |
+| Monte Carlo sampling | Finite samples introduce noise | Number of paths $M$ |
+| Euler-Maruyama paths | Numerical paths differ from true SDE solutions | Timestep size $h$ |
+
+---
+
+## What we cannot measure
+
+Here is the critical point: **we do not know $\bar{b}^2_{\text{true}}$**.
+
+This means we cannot compute:
+$$\|\bar{b}^2_{\text{computed}} - \bar{b}^2_{\text{true}}\|$$
+
+regardless of what norm we use. Any error analysis that claims to measure this quantity directly is either:
+- Using one method as a proxy for truth (which doens't help us here, especially since we cannot trust my crude way of regenerating the Laplace results from the paper), or
+- Computing something else entirely
+
+
+---
+
+## What we can measure
+
+Despite not knowing the true answer, we can still validate our methods through several approaches:
+
+### Self-convergence
+
+As we refine our computation (more levels, more samples, higher polynomial degree), the estimates should stabilise. If $\hat{b}^2_L$ denotes our estimate using $L$ MLMC levels, we monitor:
+
+$$|\hat{b}^2_L - \hat{b}^2_{L-1}|$$
+
+If this is small and decreasing geometrically with $L$, we have evidence that the method is converging to *something*. We cannot prove it is converging to the true answer, but divergence or erratic behaviour would indicate problems.
+
+### Richardson extrapolation for bias estimation
+
+If we assume the bias decays geometrically (a standard assumption for discretisation methods), then:
+
+$$\mathbb{E}[\hat{b}^2_L] - \bar{b}^2_{\text{true}} \approx c \cdot 2^{-\alpha L}$$
+
+for some constants $c$ and $\alpha$. The observable level differences $m_L = \mathbb{E}[\hat{b}^2_L - \hat{b}^2_{L-1}]$ allow us to estimate the remaining bias:
+
+$$\text{Bias estimate} \approx \frac{m_L}{2^\alpha - 1}$$
+
+This is an estimate, not exact knowledge, but it gives us a principled way to judge when we have refined enough.
+
+### MLMC variance diagnostics
+
+The variance of level corrections tells us whether our coupling is working:
+
+$$V_\ell = \text{Var}[P_\ell - P_{\ell-1}]$$
+
+We compute this as the sample variance of the differences (not the difference of sample variances). For effective coupling, we expect:
+- $V_\ell$ to decay geometrically with level
+- Correlation between $P_\ell$ and $P_{\ell-1}$ to be high (above 0.95)
+
+If these diagnostics fail, something is wrong with the implementation, regardless of what the final numbers say.
+
+### Cross-method comparison
+
+The MLMC regression approach and the Laplace approximation approach target the same mathematical object through completely different computational routes. If both methods produce similar option prices, this provides confidence that both are working correctly.
+
+We do not expect the volatility surfaces to match exactly. The methods make different approximations:
+- MLMC fits polynomials to Monte Carlo samples
+- Laplace evaluates analytical approximations at quadrature points
+
+But the downstream quantities (option prices, exercise boundaries) should agree if both methods are valid.
+
+### End-to-end validation
+
+Ultimately, we care about option prices, not volatility surfaces. The volatility surface is an intermediate quantity. Two surfaces that look different can still produce nearly identical option prices if they agree in the regions that matter for the pricing PDE.
+
+We can validate by:
+1. Computing option prices using both MLMC and Laplace volatility surfaces
+2. Comparing these prices
+3. Checking against known benchmarks for simple cases (e.g., single-asset Black-Scholes)
+
+Looking at what my comparison code does so far, this is exactly what we see. The two methods produce near identical option prices.
+
+---
+
+## The role of MLMC in this framework
+
+MLMC does not magically eliminate error. What it does is **reduce computational cost** while maintaining accuracy.
+
+The telescoping sum:
+$$\hat{b}^2_L = \hat{b}^2_0 + \sum_{\ell=1}^{L} (\hat{b}^2_\ell - \hat{b}^2_{\ell-1})$$
+
+allows us to:
+- Use many cheap samples at coarse levels (where corrections are large but cheap)
+- Use few expensive samples at fine levels (where corrections are small)
+
+The variance of each correction term $V_\ell = \text{Var}[\hat{b}^2_\ell - \hat{b}^2_{\ell-1}]$ must be computed as the **variance of the coupled difference**, not as the difference of individual variances. This is because the coupling (using the same Brownian path) induces correlation that makes the difference small even when the individual terms have large variance.
+
+---
+
+## Implementation plan
+
+Any code that computes the volatility surface via MLMC should incorporate the following diagnostics:
+
+**1. Level-wise statistics (computed during MLMC):**
+- Store $m_\ell = \frac{1}{N_\ell} \sum_n (P_\ell^{(n)} - P_{\ell-1}^{(n)})$ (mean correction at each level)
+- Store $V_\ell = \text{Var}[P_\ell - P_{\ell-1}]$ (variance of corrections)
+- Compute correlation $\rho_\ell$ between consecutive levels
+
+**2. Convergence checks (post-computation):**
+- Verify $|m_\ell|$ decays geometrically with $\ell$
+- Verify $V_\ell$ decays geometrically with $\ell$
+- Estimate bias via $|m_L| / (2^\alpha - 1)$
+- Flag warnings if $\rho_\ell < 0.9$ (coupling may be ineffective)
+
+**3. Cross-validation (when alternative method available):**
+- Compute both surfaces on identical $(t, s)$ grid
+- Report pointwise differences and summary statistics
+- Compare downstream option prices, not just surfaces
+
+**4. Self-consistency (multiple runs):**
+- Run MLMC multiple times with different random seeds
+- Check that results fall within expected statistical variation
+- Verify $1/\sqrt{n}$ convergence of the ensemble mean
+
+These diagnostics can be implemented as a lightweight module that wraps any MLMC volatility surface computation, logging the relevant quantities without modifying the core algorithm.
+
+---
+
+## Summary of our validation strategy
+
+Since we cannot measure error against truth, we adopt a multi-pronged validation approach:
+
+| Validation Method | What It Checks | Evidence of Success |
+|-------------------|----------------|---------------------|
+| Self-convergence | Method converges as refined | Level differences decay geometrically |
+| Richardson extrapolation | Bias is under control | Estimated bias below tolerance |
+| Variance diagnostics | Coupling is effective | $V_\ell$ decays, correlation high |
+| Cross-method comparison | Methods agree | Option prices match within tolerance |
+| Benchmark tests | Implementation is correct | Known cases reproduced exactly |
+
+No single check is sufficient. Together, they provide confidence that our computed volatility surfaces, while not provably equal to the true answer, are fit for purpose in pricing American basket options.
+
+---
+
+
