@@ -1,13 +1,16 @@
 # Experiment 3: Dimension Scaling Results
 
+**NOTE**: Disagreement metrics measure difference between MLMC and Laplace.
+Neither method is ground truth.
+
 ## Summary
 
-| d | MLMC Time (s) | Laplace Time (s) | L2 Error | L∞ Error |
-|---|---------------|------------------|----------|----------|
-| 2 | 3.44 | 0.65 | 0.0018 | 0.0115 |
-| 3 | 3.65 | 1.32 | 0.0087 | 0.0676 |
-| 5 | 4.24 | 2.91 | 0.0038 | 0.0222 |
-| 10 | 5.10 | 9.90 | 0.0105 | 0.0468 |
+| d | MLMC Time (s) | Laplace Time (s) | L² Disagreement | L∞ Disagreement |
+|---|---------------|------------------|-----------------|------------------|
+| 2 | 0.19 | 0.65 | 0.0018 | 10.3136 |
+| 3 | 0.22 | 1.35 | 0.0057 | 46.5437 |
+| 5 | 0.28 | 3.08 | 0.0028 | 40.2860 |
+| 10 | 0.39 | 10.05 | 0.0103 | 265.5721 |
 
 ## Key Observations
 

@@ -39,7 +39,7 @@ from config import DEFAULT_PARAMS
 from methods.mlmc_ot_estimator import estimate_volatility_mlmc, estimate_domain
 from methods.laplace_wrapper import estimate_volatility_laplace
 from methods.common import (
-    compute_accuracy_metrics,
+    compute_method_agreement,
     format_metrics_table,
     save_metrics_markdown,
 )
@@ -160,14 +160,15 @@ def run_experiment(
         verbose=verbose
     )
     
-    # Compute accuracy metrics
+    # Compute method agreement metrics (neither method is ground truth)
     if verbose:
         print()
         print("-" * 50)
-        print("Computing accuracy metrics...")
+        print("Computing method agreement metrics...")
+        print("NOTE: Neither method is ground truth - this measures disagreement")
         print("-" * 50)
-    
-    metrics = compute_accuracy_metrics(
+
+    metrics = compute_method_agreement(
         result_mlmc.b_squared_values,
         result_laplace.b_squared_values
     )

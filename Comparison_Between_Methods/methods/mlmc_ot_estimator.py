@@ -45,11 +45,77 @@ Based on: Amelie's FML implementation, refactored for Comparison framework
 import numpy as np
 import math
 import time
-from typing import Tuple, Callable, Optional, Dict, Any
-from dataclasses import dataclass
+from typing import Tuple, Callable, Optional, Dict, Any, Union
+from dataclasses import dataclass, field
 from numpy.polynomial.legendre import legvander
+from scipy import stats
 
 from .common import VolatilitySurfaceResult
+
+
+# =============================================================================
+# SECTION 0: Data Structures for Level Statistics
+# =============================================================================
+
+@dataclass
+class LevelStats:
+    """
+    Statistics for a single MLMC level.
+
+    These diagnostics enable proper error analysis following Giles (2015):
+    - Variance of coupled differences (not difference of variances!)
+    - Correlation between fine and coarse estimates
+    - Kurtosis for reliability assessment
+
+    Attributes
+    ----------
+    level : int
+        MLMC level index (0 = coarsest).
+    coefficients : np.ndarray
+        Polynomial coefficients for this level's contribution.
+    variance : float
+        Var[P_ℓ - P_{ℓ-1}], the variance of the coupled difference.
+        For level 0, this is Var[P_0].
+    mean_correction : float
+        E[P_ℓ - P_{ℓ-1}], the mean level correction.
+        For level 0, this is E[P_0].
+    correlation : float
+        Corr(P_ℓ, P_{ℓ-1}), correlation between fine and coarse.
+        For level 0, this is 1.0 (no coupling).
+    kurtosis : float
+        Excess kurtosis of P_ℓ - P_{ℓ-1}. Should be < 100 for reliability.
+    n_samples : int
+        Number of samples used at this level.
+    var_fine : float
+        Var[P_ℓ] - variance of fine-level estimate alone.
+    var_coarse : float
+        Var[P_{ℓ-1}] - variance of coarse-level estimate alone.
+        For level 0, this equals var_fine.
+    """
+    level: int
+    coefficients: np.ndarray
+    variance: float
+    mean_correction: float
+    correlation: float
+    kurtosis: float
+    n_samples: int
+    var_fine: float = 0.0
+    var_coarse: float = 0.0
+
+    @property
+    def variance_reduction_factor(self) -> float:
+        """
+        VRF = (Var[P_ℓ] + Var[P_{ℓ-1}]) / Var[P_ℓ - P_{ℓ-1}]
+
+        Should be > 10 for effective coupling.
+        """
+        if self.variance < 1e-15:
+            return float('inf')
+        return (self.var_fine + self.var_coarse) / self.variance
+
+    def __repr__(self) -> str:
+        return (f"LevelStats(level={self.level}, var={self.variance:.2e}, "
+                f"corr={self.correlation:.4f}, VRF={self.variance_reduction_factor:.1f})")
 
 
 # =============================================================================
@@ -415,23 +481,24 @@ def mlmc_level(x0: np.ndarray, T: float, h0: float, level: int,
                r: float, cov_mat: np.ndarray, vol: np.ndarray,
                max_deg: int, P1: np.ndarray, s_min: float, s_max: float,
                C: int = 80, batch_size: int = 50,
-               verbose: bool = False) -> np.ndarray:
+               verbose: bool = False,
+               return_stats: bool = False) -> Union[np.ndarray, Tuple[np.ndarray, LevelStats]]:
     """
     Compute MLMC level-l coefficients using accumulated normal equations.
-    
+
     This is the memory-efficient core of the fast MLMC implementation.
     Instead of building the full design matrix D ∈ R^{MN × dimV}, we
     accumulate the normal equations incrementally:
-    
+
         G += D_n.T @ D_n    (Gram matrix)
         g += D_n.T @ psi_n  (moment vector)
-    
+
     Then solve G c = g via Cholesky decomposition.
-    
+
     The polynomial degree decreases with level: l_V = max_deg - level,
     implementing the multi-resolution principle where coarse levels
     capture global features and fine levels capture local corrections.
-    
+
     Parameters
     ----------
     x0 : ndarray
@@ -460,11 +527,15 @@ def mlmc_level(x0: np.ndarray, T: float, h0: float, level: int,
         Batch size for memory-efficient processing (default 50).
     verbose : bool, optional
         Print progress information (default False).
-        
+    return_stats : bool, optional
+        If True, also return LevelStats with variance diagnostics.
+
     Returns
     -------
     c_padded : ndarray
         Coefficient vector, zero-padded to dim_max length.
+    stats : LevelStats (only if return_stats=True)
+        Level statistics including variance, correlation, kurtosis.
     """
     x0 = np.asarray(x0).flatten()
     vol = np.asarray(vol).flatten()
@@ -504,21 +575,36 @@ def mlmc_level(x0: np.ndarray, T: float, h0: float, level: int,
     norm_t = np.sqrt(2 * np.arange(deg_t + 1) + 1)
     norm_s = np.sqrt(2 * np.arange(deg_s + 1) + 1)
     VT = legvander(t_scaled, deg_t) * norm_t
-    
+
     # Accumulators for normal equations
     G = np.zeros((dimV, dimV))
     g = np.zeros((dimV, 1))
-    
+
+    # Accumulators for variance statistics (if requested)
+    # We track sufficient statistics for mean, variance, correlation, kurtosis
+    if return_stats:
+        n_samples_total = 0
+        # For level 0: track b² values
+        # For level > 0: track b_f, b_c, and (b_f - b_c) values
+        sum_psi = 0.0       # Sum of target values (b² or b_f - b_c)
+        sum_psi2 = 0.0      # Sum of squared target values
+        sum_bf = 0.0        # Sum of fine values (level > 0 only)
+        sum_bc = 0.0        # Sum of coarse values (level > 0 only)
+        sum_bf2 = 0.0       # Sum of squared fine values
+        sum_bc2 = 0.0       # Sum of squared coarse values
+        sum_bf_bc = 0.0     # Sum of products (for correlation)
+        all_psi = []        # Store all values for kurtosis calculation
+
     if verbose:
         print(f"  Level {level}: deg={l_V}, dimV={dimV}, M={M_l}, batches={n_batches}")
-    
+
     for b_idx in range(n_batches):
         B = min(batch_size, M_l - b_idx * batch_size)
         if B <= 0:
             break
-        
+
         X0 = np.tile(x0, (B, 1))
-        
+
         if level == 0:
             # Level 0: no coarse paths, just fit b² directly
             X_f = X0.copy()
@@ -549,7 +635,19 @@ def mlmc_level(x0: np.ndarray, T: float, h0: float, level: int,
                 w_sigma_f = X_f * vol * P1  # Shape: (B, d) = wᵢσᵢXᵢ
                 b_sq = ((w_sigma_f @ cov_mat) * w_sigma_f).sum(axis=1)
                 psi_n = b_sq.reshape(-1, 1)
-                
+
+                # Track statistics for level 0
+                if return_stats:
+                    n_samples_total += B
+                    sum_psi += np.sum(b_sq)
+                    sum_psi2 += np.sum(b_sq ** 2)
+                    sum_bf += np.sum(b_sq)  # For level 0, fine = coarse = b_sq
+                    sum_bf2 += np.sum(b_sq ** 2)
+                    sum_bc += np.sum(b_sq)
+                    sum_bc2 += np.sum(b_sq ** 2)
+                    sum_bf_bc += np.sum(b_sq ** 2)
+                    all_psi.extend(b_sq.tolist())
+
                 G += D_n.T @ D_n
                 g += D_n.T @ psi_n
         
@@ -607,10 +705,23 @@ def mlmc_level(x0: np.ndarray, T: float, h0: float, level: int,
                 w_sigma_c = X_c * vol * P1
                 b_c = ((w_sigma_c @ cov_mat) * w_sigma_c).sum(axis=1)
                 psi_n = (b_f - b_c).reshape(-1, 1)
-                
+
+                # Track statistics for level > 0
+                if return_stats:
+                    diff = b_f - b_c
+                    n_samples_total += B
+                    sum_psi += np.sum(diff)
+                    sum_psi2 += np.sum(diff ** 2)
+                    sum_bf += np.sum(b_f)
+                    sum_bc += np.sum(b_c)
+                    sum_bf2 += np.sum(b_f ** 2)
+                    sum_bc2 += np.sum(b_c ** 2)
+                    sum_bf_bc += np.sum(b_f * b_c)
+                    all_psi.extend(diff.tolist())
+
                 G += D_n.T @ D_n
                 g += D_n.T @ psi_n
-    
+
     # Solve normal equations via Cholesky
     G_reg = 0.5 * (G + G.T)  # Ensure symmetry
     
@@ -632,37 +743,100 @@ def mlmc_level(x0: np.ndarray, T: float, h0: float, level: int,
     L = np.linalg.cholesky(G_reg)
     y = np.linalg.solve(L, g)
     c = np.linalg.solve(L.T, y).ravel()
-    
+
     # Zero-pad to maximum dimension
     c_padded = np.zeros(dim_max)
     c_padded[:len(c)] = c
-    
-    return c_padded
+
+    if not return_stats:
+        return c_padded
+
+    # Compute level statistics
+    n = n_samples_total
+    if n > 1:
+        # Mean and variance of psi (the regression target)
+        mean_psi = sum_psi / n
+        var_psi = (sum_psi2 / n - mean_psi ** 2) * n / (n - 1)  # Bessel correction
+
+        # Variance of fine and coarse estimates
+        mean_bf = sum_bf / n
+        mean_bc = sum_bc / n
+        var_bf = (sum_bf2 / n - mean_bf ** 2) * n / (n - 1)
+        var_bc = (sum_bc2 / n - mean_bc ** 2) * n / (n - 1)
+
+        # Correlation between fine and coarse
+        if level == 0:
+            corr = 1.0  # No coupling at level 0
+        else:
+            cov_bf_bc = (sum_bf_bc / n - mean_bf * mean_bc) * n / (n - 1)
+            std_bf = np.sqrt(max(var_bf, 1e-15))
+            std_bc = np.sqrt(max(var_bc, 1e-15))
+            if std_bf > 1e-10 and std_bc > 1e-10:
+                corr = cov_bf_bc / (std_bf * std_bc)
+                corr = np.clip(corr, -1.0, 1.0)
+            else:
+                corr = 1.0
+
+        # Kurtosis of psi (using scipy for stability)
+        all_psi_arr = np.array(all_psi)
+        if len(all_psi_arr) > 3:
+            try:
+                kurt = stats.kurtosis(all_psi_arr, fisher=True)  # Excess kurtosis
+            except:
+                kurt = 0.0
+        else:
+            kurt = 0.0
+    else:
+        mean_psi = sum_psi if n > 0 else 0.0
+        var_psi = 0.0
+        var_bf = 0.0
+        var_bc = 0.0
+        corr = 1.0
+        kurt = 0.0
+
+    level_stats = LevelStats(
+        level=level,
+        coefficients=c_padded,
+        variance=max(var_psi, 0.0),
+        mean_correction=mean_psi,
+        correlation=corr,
+        kurtosis=kurt,
+        n_samples=n,
+        var_fine=max(var_bf, 0.0),
+        var_coarse=max(var_bc, 0.0)
+    )
+
+    return c_padded, level_stats
 
 
 def mlmc_level_ot(x0: np.ndarray, T: float, h0: float, level: int,
                   r: float, cov_mat: np.ndarray, vol: np.ndarray,
                   max_deg: int, P1: np.ndarray, s_min: float, s_max: float,
                   C: int = 80, batch_size: int = 50,
-                  M_pilot: int = 500, verbose: bool = False) -> np.ndarray:
+                  M_pilot: int = 500, verbose: bool = False,
+                  return_stats: bool = False) -> Union[np.ndarray, Tuple[np.ndarray, LevelStats]]:
     """
     Compute MLMC level-l coefficients with optimal transport coupling.
-    
+
     Instead of using standard Brownian coupling for coarse paths, this
     uses Gaussian-Brenier maps to create optimally coupled paths in
     log-space. This provides theoretically optimal variance reduction.
-    
+
     Parameters
     ----------
     [Same as mlmc_level, plus:]
     M_pilot : int, optional
         Number of pilot paths for OT map estimation (default 500).
-        
+    return_stats : bool, optional
+        If True, also return LevelStats with variance diagnostics.
+
     Returns
     -------
     c_padded : ndarray
         Coefficient vector, zero-padded to dim_max length.
-        
+    stats : LevelStats (only if return_stats=True)
+        Level statistics including variance, correlation, kurtosis.
+
     Raises
     ------
     ValueError
@@ -711,22 +885,34 @@ def mlmc_level_ot(x0: np.ndarray, T: float, h0: float, level: int,
     norm_t = np.sqrt(2 * np.arange(deg_t + 1) + 1)
     norm_s = np.sqrt(2 * np.arange(deg_s + 1) + 1)
     VT = legvander(t_scaled, deg_t) * norm_t
-    
+
     # Accumulators for normal equations
     G = np.zeros((dimV, dimV))
     g = np.zeros((dimV, 1))
-    
+
+    # Accumulators for variance statistics (if requested)
+    if return_stats:
+        n_samples_total = 0
+        sum_psi = 0.0
+        sum_psi2 = 0.0
+        sum_bf = 0.0
+        sum_bc = 0.0
+        sum_bf2 = 0.0
+        sum_bc2 = 0.0
+        sum_bf_bc = 0.0
+        all_psi = []
+
     if verbose:
         print(f"  Level {level}: deg={l_V}, dimV={dimV}, M={M_l}, batches={n_batches}")
-    
+
     for b_idx in range(n_batches):
         B = min(batch_size, M_l - b_idx * batch_size)
         if B <= 0:
             break
-        
+
         X0 = np.tile(x0, (B, 1))
         X_f = X0.copy()
-        
+
         # Initial timestep
         trow0 = VT[0, :]
         s0 = X0 @ P1
@@ -777,32 +963,96 @@ def mlmc_level_ot(x0: np.ndarray, T: float, h0: float, level: int,
             w_sigma_c = X_c * vol * P1
             b_c = ((w_sigma_c @ cov_mat) * w_sigma_c).sum(axis=1)
             psi_n = (b_f - b_c).reshape(-1, 1)
-            
+
+            # Track statistics for OT level
+            if return_stats:
+                diff = b_f - b_c
+                n_samples_total += B
+                sum_psi += np.sum(diff)
+                sum_psi2 += np.sum(diff ** 2)
+                sum_bf += np.sum(b_f)
+                sum_bc += np.sum(b_c)
+                sum_bf2 += np.sum(b_f ** 2)
+                sum_bc2 += np.sum(b_c ** 2)
+                sum_bf_bc += np.sum(b_f * b_c)
+                all_psi.extend(diff.tolist())
+
             G += D_n.T @ D_n
             g += D_n.T @ psi_n
-    
+
     # Solve normal equations via Cholesky
     G_reg = 0.5 * (G + G.T)
-    
+
     lam = np.linalg.eigvalsh(G_reg)
     lam_min = max(lam[0], 1e-300)
     cond_approx = np.sqrt(lam[-1] / lam_min)
-    
+
     if verbose:
         print(f"    Condition number ≈ {cond_approx:.2e}")
-    
+
     if cond_approx > 1e12:
         reg = 1e-10 * lam[-1]
         G_reg += reg * np.eye(dimV)
-    
+
     L = np.linalg.cholesky(G_reg)
     y = np.linalg.solve(L, g)
     c = np.linalg.solve(L.T, y).ravel()
-    
+
     c_padded = np.zeros(dim_max)
     c_padded[:len(c)] = c
-    
-    return c_padded
+
+    if not return_stats:
+        return c_padded
+
+    # Compute level statistics for OT level
+    n = n_samples_total
+    if n > 1:
+        mean_psi = sum_psi / n
+        var_psi = (sum_psi2 / n - mean_psi ** 2) * n / (n - 1)
+
+        mean_bf = sum_bf / n
+        mean_bc = sum_bc / n
+        var_bf = (sum_bf2 / n - mean_bf ** 2) * n / (n - 1)
+        var_bc = (sum_bc2 / n - mean_bc ** 2) * n / (n - 1)
+
+        cov_bf_bc = (sum_bf_bc / n - mean_bf * mean_bc) * n / (n - 1)
+        std_bf = np.sqrt(max(var_bf, 1e-15))
+        std_bc = np.sqrt(max(var_bc, 1e-15))
+        if std_bf > 1e-10 and std_bc > 1e-10:
+            corr = cov_bf_bc / (std_bf * std_bc)
+            corr = np.clip(corr, -1.0, 1.0)
+        else:
+            corr = 1.0
+
+        all_psi_arr = np.array(all_psi)
+        if len(all_psi_arr) > 3:
+            try:
+                kurt = stats.kurtosis(all_psi_arr, fisher=True)
+            except:
+                kurt = 0.0
+        else:
+            kurt = 0.0
+    else:
+        mean_psi = sum_psi if n > 0 else 0.0
+        var_psi = 0.0
+        var_bf = 0.0
+        var_bc = 0.0
+        corr = 1.0
+        kurt = 0.0
+
+    level_stats = LevelStats(
+        level=level,
+        coefficients=c_padded,
+        variance=max(var_psi, 0.0),
+        mean_correction=mean_psi,
+        correlation=corr,
+        kurtosis=kurt,
+        n_samples=n,
+        var_fine=max(var_bf, 0.0),
+        var_coarse=max(var_bc, 0.0)
+    )
+
+    return c_padded, level_stats
 
 
 # =============================================================================
@@ -813,13 +1063,14 @@ def make_c(x0: np.ndarray, T: float, h0: float, r: float,
            cov_mat: np.ndarray, vol: np.ndarray, max_deg: int,
            P1: np.ndarray, s_min: float, s_max: float,
            C: int = 80, batch_size: int = 50,
-           verbose: bool = False) -> np.ndarray:
+           verbose: bool = False,
+           return_stats: bool = False) -> Union[np.ndarray, Tuple[np.ndarray, Dict[int, LevelStats]]]:
     """
     Compute full coefficient vector via MLMC telescoping sum (standard coupling).
-    
+
     Implements c = Σ_{l=0}^{max_deg} c_l where each c_l is computed
     using accumulated normal equations at level l with Brownian coupling.
-    
+
     Parameters
     ----------
     x0 : ndarray
@@ -846,27 +1097,40 @@ def make_c(x0: np.ndarray, T: float, h0: float, r: float,
         Batch size for processing.
     verbose : bool, optional
         Print progress information.
-        
+    return_stats : bool, optional
+        If True, also return per-level statistics for diagnostics.
+
     Returns
     -------
     c : ndarray
         Full coefficient vector for the volatility surface.
+    level_stats : Dict[int, LevelStats] (only if return_stats=True)
+        Statistics for each MLMC level.
     """
     if verbose:
         print(f"\nMLMC Coefficient Estimation (max_deg={max_deg}, coupling=Brownian)")
         print("=" * 60)
-    
+
     c_total = np.zeros(len(tot_degree_poly(max_deg)))
-    
+    level_stats_dict = {} if return_stats else None
+
     for level in range(max_deg + 1):
-        c_l = mlmc_level(x0, T, h0, level, r, cov_mat, vol, max_deg,
-                         P1, s_min, s_max, C, batch_size, verbose)
+        if return_stats:
+            c_l, stats = mlmc_level(x0, T, h0, level, r, cov_mat, vol, max_deg,
+                                    P1, s_min, s_max, C, batch_size, verbose,
+                                    return_stats=True)
+            level_stats_dict[level] = stats
+        else:
+            c_l = mlmc_level(x0, T, h0, level, r, cov_mat, vol, max_deg,
+                             P1, s_min, s_max, C, batch_size, verbose)
         c_total += c_l
-    
+
     if verbose:
         print("=" * 60)
         print("MLMC Aggregation Complete\n")
-    
+
+    if return_stats:
+        return c_total, level_stats_dict
     return c_total
 
 
@@ -874,45 +1138,65 @@ def make_c_ot(x0: np.ndarray, T: float, h0: float, r: float,
               cov_mat: np.ndarray, vol: np.ndarray, max_deg: int,
               P1: np.ndarray, s_min: float, s_max: float,
               C: int = 80, batch_size: int = 50,
-              M_pilot: int = 500, verbose: bool = False) -> np.ndarray:
+              M_pilot: int = 500, verbose: bool = False,
+              return_stats: bool = False) -> Union[np.ndarray, Tuple[np.ndarray, Dict[int, LevelStats]]]:
     """
     Compute full coefficient vector via OT-enhanced MLMC telescoping sum.
-    
+
     Uses standard MLMC for level 0 (no OT needed), then OT-enhanced
     estimators for levels 1 through max_deg.
-    
+
     Parameters
     ----------
     [Same as make_c, plus:]
     M_pilot : int, optional
         Number of pilot paths for OT map estimation (default 500).
-        
+    return_stats : bool, optional
+        If True, also return per-level statistics for diagnostics.
+
     Returns
     -------
     c : ndarray
         Full coefficient vector for the volatility surface.
+    level_stats : Dict[int, LevelStats] (only if return_stats=True)
+        Statistics for each MLMC level.
     """
     if verbose:
         print(f"\nMLMC+OT Coefficient Estimation (max_deg={max_deg})")
         print("=" * 60)
-    
+
     c_total = np.zeros(len(tot_degree_poly(max_deg)))
-    
+    level_stats_dict = {} if return_stats else None
+
     # Level 0: standard MLMC (no OT needed)
-    c_0 = mlmc_level(x0, T, h0, 0, r, cov_mat, vol, max_deg,
-                     P1, s_min, s_max, C, batch_size, verbose)
+    if return_stats:
+        c_0, stats_0 = mlmc_level(x0, T, h0, 0, r, cov_mat, vol, max_deg,
+                                   P1, s_min, s_max, C, batch_size, verbose,
+                                   return_stats=True)
+        level_stats_dict[0] = stats_0
+    else:
+        c_0 = mlmc_level(x0, T, h0, 0, r, cov_mat, vol, max_deg,
+                         P1, s_min, s_max, C, batch_size, verbose)
     c_total += c_0
-    
+
     # Levels 1+: OT-enhanced MLMC
     for level in range(1, max_deg + 1):
-        c_l = mlmc_level_ot(x0, T, h0, level, r, cov_mat, vol, max_deg,
-                            P1, s_min, s_max, C, batch_size, M_pilot, verbose)
+        if return_stats:
+            c_l, stats = mlmc_level_ot(x0, T, h0, level, r, cov_mat, vol, max_deg,
+                                        P1, s_min, s_max, C, batch_size, M_pilot, verbose,
+                                        return_stats=True)
+            level_stats_dict[level] = stats
+        else:
+            c_l = mlmc_level_ot(x0, T, h0, level, r, cov_mat, vol, max_deg,
+                                P1, s_min, s_max, C, batch_size, M_pilot, verbose)
         c_total += c_l
-    
+
     if verbose:
         print("=" * 60)
         print("MLMC+OT Aggregation Complete\n")
-    
+
+    if return_stats:
+        return c_total, level_stats_dict
     return c_total
 
 

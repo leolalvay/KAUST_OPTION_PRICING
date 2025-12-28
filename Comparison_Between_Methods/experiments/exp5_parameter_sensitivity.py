@@ -43,16 +43,17 @@ import matplotlib.pyplot as plt
 from config import DEFAULT_PARAMS, create_2d_params
 from methods.mlmc_ot_estimator import estimate_volatility_mlmc, estimate_domain
 from methods.laplace_wrapper import estimate_volatility_laplace
-from methods.common import compute_accuracy_metrics
+from methods.common import compute_method_agreement
 
 
 def run_single_comparison(params, t_grid, s_grid, verbose=False):
     """
     Run both methods and compute metrics for given parameters.
-    
+
     Returns
     -------
-    dict with keys: l2_error, linf_error, mlmc_time, laplace_time, correlation
+    dict with keys: l2_disagreement, linf_disagreement, mlmc_time, laplace_time, correlation
+    Note: Neither method is ground truth - these are disagreement metrics, not errors.
     """
     try:
         result_mlmc = estimate_volatility_mlmc(
@@ -63,15 +64,15 @@ def run_single_comparison(params, t_grid, s_grid, verbose=False):
         result_laplace = estimate_volatility_laplace(
             params, t_grid, s_grid, verbose=False
         )
-        
-        metrics = compute_accuracy_metrics(
+
+        metrics = compute_method_agreement(
             result_mlmc.b_squared_values,
             result_laplace.b_squared_values
         )
-        
+
         return {
-            'l2_error': metrics['l2_relative_error'],
-            'linf_error': metrics['linf_relative_error'],
+            'l2_disagreement': metrics['l2_disagreement'],
+            'linf_disagreement': metrics['linf_disagreement'],
             'mlmc_time': result_mlmc.computation_time,
             'laplace_time': result_laplace.computation_time,
             'correlation': metrics.get('correlation', np.nan),
@@ -81,8 +82,8 @@ def run_single_comparison(params, t_grid, s_grid, verbose=False):
         if verbose:
             print(f"    Error: {e}")
         return {
-            'l2_error': np.nan,
-            'linf_error': np.nan,
+            'l2_disagreement': np.nan,
+            'linf_disagreement': np.nan,
             'mlmc_time': np.nan,
             'laplace_time': np.nan,
             'correlation': np.nan,
@@ -187,10 +188,10 @@ def run_experiment(
         
         if verbose:
             if result['success']:
-                print(f"L2 = {result['l2_error']:.4f}")
+                print(f"L2 disagreement = {result['l2_disagreement']:.4f}")
             else:
                 print("FAILED")
-    
+
     all_results['volatility'] = {
         'values': sigma_values,
         'results': sigma_results,
@@ -219,10 +220,10 @@ def run_experiment(
         
         if verbose:
             if result['success']:
-                print(f"L2 = {result['l2_error']:.4f}")
+                print(f"L2 disagreement = {result['l2_disagreement']:.4f}")
             else:
                 print("FAILED")
-    
+
     all_results['correlation'] = {
         'values': rho_values,
         'results': rho_results,
@@ -251,10 +252,10 @@ def run_experiment(
         
         if verbose:
             if result['success']:
-                print(f"L2 = {result['l2_error']:.4f}")
+                print(f"L2 disagreement = {result['l2_disagreement']:.4f}")
             else:
                 print("FAILED")
-    
+
     all_results['interest_rate'] = {
         'values': r_values,
         'results': r_results,
@@ -285,10 +286,10 @@ def run_experiment(
         
         if verbose:
             if result['success']:
-                print(f"L2 = {result['l2_error']:.4f}")
+                print(f"L2 disagreement = {result['l2_disagreement']:.4f}")
             else:
                 print("FAILED")
-    
+
     all_results['maturity'] = {
         'values': T_values,
         'results': T_results,
@@ -319,10 +320,10 @@ def run_experiment(
         
         if verbose:
             if result['success']:
-                print(f"L2 = {result['l2_error']:.4f}")
+                print(f"L2 disagreement = {result['l2_disagreement']:.4f}")
             else:
                 print("FAILED")
-    
+
     all_results['moneyness'] = {
         'values': moneyness_values,
         'results': moneyness_results,
@@ -349,17 +350,17 @@ def run_experiment(
             results = data['results']
             label = data['label']
             
-            l2_errors = [r['l2_error'] for r in results]
-            valid = [not np.isnan(e) for e in l2_errors]
-            
+            l2_disagreements = [r['l2_disagreement'] for r in results]
+            valid = [not np.isnan(e) for e in l2_disagreements]
+
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-            
-            # L2 error
-            ax1.plot(np.array(values)[valid], np.array(l2_errors)[valid],
+
+            # L2 disagreement
+            ax1.plot(np.array(values)[valid], np.array(l2_disagreements)[valid],
                     'o-', color=color, markersize=8, linewidth=2)
             ax1.set_xlabel(label, fontsize=12)
-            ax1.set_ylabel(r'$L^2$ Relative Error', fontsize=12)
-            ax1.set_title(rf'$L^2$ Error vs {label}', fontsize=13)
+            ax1.set_ylabel(r'$L^2$ Disagreement', fontsize=12)
+            ax1.set_title(rf'$L^2$ Disagreement vs {label}', fontsize=13)
             ax1.grid(True, alpha=0.3)
             
             # Computation times
@@ -396,14 +397,14 @@ def run_experiment(
             results = data['results']
             label = data['label']
             
-            l2_errors = [r['l2_error'] for r in results]
-            valid = [not np.isnan(e) for e in l2_errors]
-            
+            l2_disagreements = [r['l2_disagreement'] for r in results]
+            valid = [not np.isnan(e) for e in l2_disagreements]
+
             ax = axes[idx]
-            ax.plot(np.array(values)[valid], np.array(l2_errors)[valid],
+            ax.plot(np.array(values)[valid], np.array(l2_disagreements)[valid],
                    'o-', color=color, markersize=8, linewidth=2)
             ax.set_xlabel(label, fontsize=11)
-            ax.set_ylabel(r'$L^2$ Error', fontsize=11)
+            ax.set_ylabel(r'$L^2$ Disagreement', fontsize=11)
             ax.set_title(f'{label}', fontsize=12)
             ax.grid(True, alpha=0.3)
         
@@ -429,26 +430,28 @@ def run_experiment(
     if save_results:
         with open(tables_dir / "exp5_parameter_sensitivity.md", 'w') as f:
             f.write("# Experiment 5: Parameter Sensitivity Results\n\n")
-            
+            f.write("**NOTE**: Disagreement metrics measure difference between MLMC and Laplace.\n")
+            f.write("Neither method is ground truth.\n\n")
+
             for param_key in param_keys:
                 data = all_results[param_key]
                 f.write(f"## {data['label']}\n\n")
-                f.write("| Value | L2 Error | L∞ Error | MLMC Time (s) | Laplace Time (s) |\n")
-                f.write("|-------|----------|----------|---------------|------------------|\n")
-                
+                f.write("| Value | L² Disagreement | L∞ Disagreement | MLMC Time (s) | Laplace Time (s) |\n")
+                f.write("|-------|-----------------|-----------------|---------------|------------------|\n")
+
                 for val, res in zip(data['values'], data['results']):
                     if res['success']:
-                        f.write(f"| {val:.2f} | {res['l2_error']:.4f} | ")
-                        f.write(f"{res['linf_error']:.4f} | ")
+                        f.write(f"| {val:.2f} | {res['l2_disagreement']:.4f} | ")
+                        f.write(f"{res['linf_disagreement']:.4f} | ")
                         f.write(f"{res['mlmc_time']:.2f} | {res['laplace_time']:.2f} |\n")
                     else:
                         f.write(f"| {val:.2f} | FAILED | - | - | - |\n")
-                
+
                 f.write("\n")
-            
+
             f.write("## Key Observations\n\n")
-            f.write("- Higher volatility generally increases L2 error\n")
-            f.write("- Correlation has moderate effect on agreement\n")
+            f.write("- Higher volatility generally increases disagreement between methods\n")
+            f.write("- Correlation has moderate effect on method agreement\n")
             f.write("- Methods agree well across interest rate range\n")
             f.write("- Longer maturities may show increased divergence\n")
             f.write("- Both methods handle ATM and OTM options similarly\n")

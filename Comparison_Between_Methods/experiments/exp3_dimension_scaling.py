@@ -43,7 +43,7 @@ from config import (
 )
 from methods.mlmc_ot_estimator import estimate_volatility_mlmc, estimate_domain
 from methods.laplace_wrapper import estimate_volatility_laplace
-from methods.common import compute_accuracy_metrics
+from methods.common import compute_method_agreement
 
 
 def run_experiment(
@@ -73,7 +73,7 @@ def run_experiment(
         - dimensions: List of tested dimensions
         - mlmc_times: MLMC computation times per dimension
         - laplace_times: Laplace computation times per dimension
-        - l2_errors: L2 errors between methods
+        - l2_disagreements: L2 disagreements between methods (neither is ground truth)
         - all_results: Full results for each dimension
     """
     if dimensions is None:
@@ -106,8 +106,8 @@ def run_experiment(
     # Storage for results
     mlmc_times = []
     laplace_times = []
-    l2_errors = []
-    linf_errors = []
+    l2_disagreements = []
+    linf_disagreements = []
     all_results = {}
     
     for dim in dimensions:
@@ -187,17 +187,17 @@ def run_experiment(
         if verbose:
             print(f"    Time: {result_laplace.computation_time:.2f}s")
         
-        # Compute accuracy metrics
-        metrics = compute_accuracy_metrics(
+        # Compute method agreement metrics (neither method is ground truth)
+        metrics = compute_method_agreement(
             result_mlmc.b_squared_values,
             result_laplace.b_squared_values
         )
-        l2_errors.append(metrics['l2_relative_error'])
-        linf_errors.append(metrics['linf_relative_error'])
-        
+        l2_disagreements.append(metrics['l2_disagreement'])
+        linf_disagreements.append(metrics['linf_disagreement'])
+
         if verbose:
-            print(f"  L2 relative error: {metrics['l2_relative_error']:.4f}")
-            print(f"  L∞ relative error: {metrics['linf_relative_error']:.4f}")
+            print(f"  L2 disagreement: {metrics['l2_disagreement']:.4f}")
+            print(f"  L∞ disagreement: {metrics['linf_disagreement']:.4f}")
         
         # Store full results
         all_results[dim] = {
@@ -254,29 +254,29 @@ def run_experiment(
             plt.show()
         plt.close(fig1)
         
-        # 2. Error vs Dimension
+        # 2. Disagreement vs Dimension
         fig2, (ax2a, ax2b) = plt.subplots(1, 2, figsize=(14, 5))
-        
-        # L2 errors
-        ax2a.plot(dimensions, l2_errors, 'bo-', markersize=10, linewidth=2)
+
+        # L2 disagreements
+        ax2a.plot(dimensions, l2_disagreements, 'bo-', markersize=10, linewidth=2)
         ax2a.set_xlabel('Number of Assets (d)', fontsize=12)
-        ax2a.set_ylabel(r'$L^2$ Relative Error', fontsize=12)
-        ax2a.set_title(r'$L^2$ Error vs Dimension', fontsize=13)
+        ax2a.set_ylabel(r'$L^2$ Disagreement', fontsize=12)
+        ax2a.set_title(r'$L^2$ Disagreement vs Dimension (neither is ground truth)', fontsize=13)
         ax2a.grid(True, alpha=0.3)
         ax2a.set_xticks(dimensions)
-        
-        # L-infinity errors
-        ax2b.plot(dimensions, linf_errors, 'rs-', markersize=10, linewidth=2)
+
+        # L-infinity disagreements
+        ax2b.plot(dimensions, linf_disagreements, 'rs-', markersize=10, linewidth=2)
         ax2b.set_xlabel('Number of Assets (d)', fontsize=12)
-        ax2b.set_ylabel(r'$L^\infty$ Relative Error', fontsize=12)
-        ax2b.set_title(r'$L^\infty$ Error vs Dimension', fontsize=13)
+        ax2b.set_ylabel(r'$L^\infty$ Disagreement', fontsize=12)
+        ax2b.set_title(r'$L^\infty$ Disagreement vs Dimension (neither is ground truth)', fontsize=13)
         ax2b.grid(True, alpha=0.3)
         ax2b.set_xticks(dimensions)
         
         fig2.tight_layout()
         
         if save_results:
-            fig2.savefig(figures_dir / "exp3_error_vs_dimension.png", dpi=150, bbox_inches='tight')
+            fig2.savefig(figures_dir / "exp3_disagreement_vs_dimension.png", dpi=150, bbox_inches='tight')
         if show_plots:
             plt.show()
         plt.close(fig2)
@@ -313,12 +313,14 @@ def run_experiment(
     if save_results:
         with open(tables_dir / "exp3_dimension_scaling.md", 'w') as f:
             f.write("# Experiment 3: Dimension Scaling Results\n\n")
+            f.write("**NOTE**: Disagreement metrics measure difference between MLMC and Laplace.\n")
+            f.write("Neither method is ground truth.\n\n")
             f.write("## Summary\n\n")
-            f.write("| d | MLMC Time (s) | Laplace Time (s) | L2 Error | L∞ Error |\n")
-            f.write("|---|---------------|------------------|----------|----------|\n")
+            f.write("| d | MLMC Time (s) | Laplace Time (s) | L² Disagreement | L∞ Disagreement |\n")
+            f.write("|---|---------------|------------------|-----------------|------------------|\n")
             for i, dim in enumerate(dimensions):
                 f.write(f"| {dim} | {mlmc_times[i]:.2f} | {laplace_times[i]:.2f} | ")
-                f.write(f"{l2_errors[i]:.4f} | {linf_errors[i]:.4f} |\n")
+                f.write(f"{l2_disagreements[i]:.4f} | {linf_disagreements[i]:.4f} |\n")
             
             f.write("\n## Key Observations\n\n")
             f.write("- Markovian projection reduces d-dimensional problem to 1D PDE\n")
@@ -341,8 +343,8 @@ def run_experiment(
         "dimensions": dimensions,
         "mlmc_times": mlmc_times,
         "laplace_times": laplace_times,
-        "l2_errors": l2_errors,
-        "linf_errors": linf_errors,
+        "l2_disagreements": l2_disagreements,
+        "linf_disagreements": linf_disagreements,
         "all_results": all_results,
     }
 
