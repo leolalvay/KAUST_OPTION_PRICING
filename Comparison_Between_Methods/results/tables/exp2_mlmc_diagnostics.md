@@ -41,9 +41,9 @@ measure disagreement, not error.
 
 | Metric | Value |
 |--------|-------|
-| L² disagreement | 0.001810 |
-| L∞ disagreement | 15.6158 |
+| L² disagreement | 0.001785 |
+| L∞ disagreement | 12.7803 |
 | Mean relative diff | 0.13% |
 | Correlation | 1.0000 |
-| Bias (MLMC - Laplace) | -1.5349 |
+| Bias (MLMC - Laplace) | -1.6061 |
 

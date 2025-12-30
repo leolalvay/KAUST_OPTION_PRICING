@@ -431,6 +431,10 @@ def plot_statistical_uncertainty(
     ax1.set_title(r'Statistical Uncertainty: $\mathrm{SE} = \sigma / \sqrt{n}$')
     ax1.legend()
     ax1.grid(True, alpha=0.3, which='both')
+    # Set integer x-ticks at increments of 2
+    if len(n_values) > 0:
+        max_n = max(n_values)
+        ax1.set_xticks(range(2, max_n + 1, 2))
 
     # Panel 2: Relative SE heatmap
     ax2 = axes[1]
@@ -651,6 +655,8 @@ def plot_l2_disagreement_vs_runs(
         + '\n(Neither method is ground truth)'
     )
     ax.grid(True, alpha=0.3, which='both')
+    # Set integer x-ticks at increments of 2
+    ax.set_xticks(range(2, n_runs + 1, 2))
 
     # Annotate final value
     ax.annotate(
