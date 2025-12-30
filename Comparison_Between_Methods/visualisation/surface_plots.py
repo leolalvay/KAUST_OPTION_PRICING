@@ -10,7 +10,8 @@ Author: Wadoud (KAUST Internship)
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from typing import Optional, Tuple
+from matplotlib.colors import TwoSlopeNorm
+from typing import Optional, Tuple, Dict, Any
 import sys
 from pathlib import Path
 
@@ -320,12 +321,182 @@ def plot_wireframe_comparison(
     
     ax.legend(fontsize=10)
     ax.view_init(elev=25, azim=-55)
-    
+
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"Saved: {save_path}")
-    
+
     if show:
         plt.show()
-    
+
+    return fig
+
+
+def plot_combined_comparison(
+    result_mlmc: VolatilitySurfaceResult,
+    result_laplace: VolatilitySurfaceResult,
+    metrics: Optional[Dict[str, Any]] = None,
+    figsize: Tuple[int, int] = (16, 12),
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> plt.Figure:
+    """
+    Create a combined 2x2 comparison panel.
+
+    Layout:
+    - Top left: MLMC 3D surface
+    - Top right: Laplace 3D surface
+    - Bottom left: Pointwise comparison scatter plot
+    - Bottom right: Difference heatmap (absolute values)
+
+    Parameters
+    ----------
+    result_mlmc : VolatilitySurfaceResult
+        MLMC estimation result.
+    result_laplace : VolatilitySurfaceResult
+        Laplace approximation result.
+    metrics : dict, optional
+        Pre-computed metrics from compute_method_agreement().
+    figsize : tuple
+        Figure size (width, height).
+    save_path : str, optional
+        Path to save the figure.
+    show : bool
+        Whether to display the figure.
+
+    Returns
+    -------
+    fig : matplotlib Figure
+    """
+    if metrics is None:
+        from methods.common import compute_method_agreement
+        metrics = compute_method_agreement(
+            result_mlmc.b_squared_values,
+            result_laplace.b_squared_values
+        )
+
+    fig = plt.figure(figsize=figsize)
+
+    # Create meshgrid for 3D plots
+    T_mesh, S_mesh = np.meshgrid(result_mlmc.t_grid, result_mlmc.s_grid, indexing='ij')
+
+    # =========================================================================
+    # Top Left: MLMC 3D surface
+    # =========================================================================
+    ax1 = fig.add_subplot(2, 2, 1, projection='3d')
+    Z_mlmc = np.nan_to_num(result_mlmc.b_squared_values, nan=np.nanmean(result_mlmc.b_squared_values))
+    surf1 = ax1.plot_surface(S_mesh, T_mesh, Z_mlmc, cmap='viridis', edgecolor='none', alpha=0.9)
+    ax1.set_xlabel('Basket Value (s)', fontsize=10, labelpad=8)
+    ax1.set_ylabel('Time (t)', fontsize=10, labelpad=8)
+    ax1.set_zlabel(r'$\bar{b}^2$', fontsize=10, labelpad=5)
+    ax1.set_title(f'MLMC (time: {result_mlmc.computation_time:.2f}s)', fontsize=11)
+    ax1.view_init(elev=25, azim=-55)
+    fig.colorbar(surf1, ax=ax1, shrink=0.6, aspect=15)
+
+    # =========================================================================
+    # Top Right: Laplace 3D surface
+    # =========================================================================
+    ax2 = fig.add_subplot(2, 2, 2, projection='3d')
+    Z_laplace = np.nan_to_num(result_laplace.b_squared_values, nan=np.nanmean(result_laplace.b_squared_values))
+    surf2 = ax2.plot_surface(S_mesh, T_mesh, Z_laplace, cmap='viridis', edgecolor='none', alpha=0.9)
+    ax2.set_xlabel('Basket Value (s)', fontsize=10, labelpad=8)
+    ax2.set_ylabel('Time (t)', fontsize=10, labelpad=8)
+    ax2.set_zlabel(r'$\bar{b}^2$', fontsize=10, labelpad=5)
+    ax2.set_title(f'Laplace (time: {result_laplace.computation_time:.2f}s)', fontsize=11)
+    ax2.view_init(elev=25, azim=-55)
+    fig.colorbar(surf2, ax=ax2, shrink=0.6, aspect=15)
+
+    # Match z-axis limits for both 3D plots
+    z_min = min(np.nanmin(result_mlmc.b_squared_values), np.nanmin(result_laplace.b_squared_values))
+    z_max = max(np.nanmax(result_mlmc.b_squared_values), np.nanmax(result_laplace.b_squared_values))
+    ax1.set_zlim([z_min * 0.95, z_max * 1.05])
+    ax2.set_zlim([z_min * 0.95, z_max * 1.05])
+
+    # =========================================================================
+    # Bottom Left: Pointwise comparison scatter plot
+    # =========================================================================
+    ax3 = fig.add_subplot(2, 2, 3)
+
+    # Flatten and filter valid values
+    mlmc_flat = result_mlmc.b_squared_values.flatten()
+    laplace_flat = result_laplace.b_squared_values.flatten()
+    valid = np.isfinite(mlmc_flat) & np.isfinite(laplace_flat)
+    mlmc_valid = mlmc_flat[valid]
+    laplace_valid = laplace_flat[valid]
+
+    # Scatter plot
+    ax3.scatter(laplace_valid, mlmc_valid, alpha=0.5, s=20, c='steelblue', edgecolor='none')
+
+    # Perfect agreement line
+    lims = [
+        min(mlmc_valid.min(), laplace_valid.min()),
+        max(mlmc_valid.max(), laplace_valid.max())
+    ]
+    ax3.plot(lims, lims, 'r--', linewidth=2, label='Perfect Agreement')
+
+    # Add metrics annotations
+    corr = metrics.get('correlation', np.nan)
+    l2_disagree = metrics.get('l2_disagreement', metrics.get('l2_relative_error', np.nan))
+    ax3.text(
+        0.05, 0.95,
+        f'Correlation: {corr:.4f}\n$L^2$ disagreement: {l2_disagree:.4f}',
+        transform=ax3.transAxes,
+        fontsize=10,
+        verticalalignment='top',
+        bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray')
+    )
+
+    ax3.set_xlabel(r'Laplace $\bar{b}^2$', fontsize=11)
+    ax3.set_ylabel(r'MLMC $\bar{b}^2$', fontsize=11)
+    ax3.set_title('Pointwise Comparison', fontsize=11)
+    ax3.legend(fontsize=9, loc='lower right')
+    ax3.grid(True, alpha=0.3)
+    ax3.set_aspect('equal', adjustable='box')
+
+    # =========================================================================
+    # Bottom Right: Difference heatmap (absolute values)
+    # =========================================================================
+    ax4 = fig.add_subplot(2, 2, 4)
+
+    # Compute absolute difference
+    diff = result_mlmc.b_squared_values - result_laplace.b_squared_values
+
+    extent = [
+        result_mlmc.s_grid.min(), result_mlmc.s_grid.max(),
+        result_mlmc.t_grid.min(), result_mlmc.t_grid.max()
+    ]
+
+    # Use diverging colourmap centred at zero
+    vmax = np.nanmax(np.abs(diff))
+    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
+
+    im4 = ax4.imshow(
+        diff,
+        aspect='auto',
+        origin='lower',
+        extent=extent,
+        cmap='RdBu_r',
+        norm=norm
+    )
+    ax4.set_xlabel('Basket Value $s$', fontsize=11)
+    ax4.set_ylabel('Time $t$', fontsize=11)
+    ax4.set_title(r'Difference: $\bar{b}^2_{\mathrm{MLMC}} - \bar{b}^2_{\mathrm{Laplace}}$', fontsize=11)
+    cbar4 = fig.colorbar(im4, ax=ax4, shrink=0.8)
+    cbar4.set_label('Difference', fontsize=10)
+
+    # Main title
+    plt.suptitle(
+        "Method Agreement (MLMC vs Laplace)\nNOTE: Neither method is ground truth",
+        fontsize=13, fontweight='bold', y=0.98
+    )
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"Saved: {save_path}")
+
+    if show:
+        plt.show()
+
     return fig

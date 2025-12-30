@@ -404,7 +404,7 @@ def plot_summary_panel(
     plt.colorbar(im4, ax=ax4, shrink=0.8)
     
     ax5 = fig.add_subplot(2, 3, 5)
-    valid_errors = metrics['pointwise_relative_error']
+    valid_errors = metrics.get('pointwise_relative_error', metrics.get('pointwise_relative_disagreement'))
     valid_errors = valid_errors[np.isfinite(valid_errors)] * 100
     ax5.hist(valid_errors, bins=40, density=True, alpha=0.7, color='steelblue')
     ax5.axvline(np.median(valid_errors), color='red', linestyle='--', 
@@ -436,9 +436,10 @@ def plot_summary_panel(
     ax6.set_aspect('equal', adjustable='box')
     ax6.grid(True, alpha=0.3)
     
+    l2_val = metrics.get('l2_disagreement', metrics.get('l2_relative_error', np.nan))
     plt.suptitle(
         f'MLMC vs Laplace Comparison\n'
-        rf'$L^2$ Error: {metrics["l2_relative_error"]:.4f}, '
+        rf'$L^2$ Disagreement: {l2_val:.4f}, '
         f'Mean Rel. Diff: {metrics["mean_relative_difference"]*100:.2f}%',
         fontsize=12
     )

@@ -16,6 +16,7 @@ Author: Wadoud (KAUST Internship)
 from .surface_plots import (
     plot_surface_comparison,
     plot_surface_3d,
+    plot_combined_comparison,
 )
 from .error_plots import (
     plot_difference_heatmap,
@@ -29,6 +30,7 @@ from .convergence_plots import (
 __all__ = [
     'plot_surface_comparison',
     'plot_surface_3d',
+    'plot_combined_comparison',
     'plot_difference_heatmap',
     'plot_pointwise_error',
     'plot_mlmc_convergence',

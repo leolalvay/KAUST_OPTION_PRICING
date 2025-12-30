@@ -1,15 +1,18 @@
-# Comparison Metrics: MLMC vs Laplace Approximation
+# Method Agreement: MLMC vs Laplace Approximation
+
+**IMPORTANT**: Neither method is ground truth. These metrics measure
+disagreement between methods, not error.
 
 ## Summary Statistics
 
 | Metric | Value |
 |--------|-------|
-| L2 relative error | 0.008744 |
-| L∞ error | 121.2741 |
-| Mean absolute difference | 6.0201 |
-| Mean relative difference | 0.30% |
-| Bias (MLMC - Laplace) | 3.0496 |
-| Pearson correlation | 0.9998 |
+| L² disagreement | 0.005743 |
+| L∞ disagreement | 42.6993 |
+| Mean absolute difference | 5.8625 |
+| Mean relative difference | 0.29% |
+| Bias (MLMC - Laplace) | -5.7417 |
+| Pearson correlation | 1.0000 |
 | Valid grid fraction | 100.0% |
 
 ## Parameters
@@ -35,14 +38,15 @@ Problem Parameters (Bayer et al. 2017, Eq. 56)
   Maturity: T = 0.5
 
   PDE grid: 50 × 100
-  MLMC max degree: 5
-  MLMC coarsest timestep: h0 = 0.02
+  MLMC max degree: 3
+  MLMC coarsest timestep: h0 = 0.05
   Random seed: 42
 ============================================================
 ```
 
 ## Notes
 
-- Neither method is treated as ground truth
+- **Neither method is treated as ground truth**
 - Relative differences use symmetric formula: 2|a-b|/(|a|+|b|)
-- L2 error normalised by mean surface magnitude
+- L² disagreement normalised by mean surface magnitude
+- High correlation (> 0.95) indicates good agreement

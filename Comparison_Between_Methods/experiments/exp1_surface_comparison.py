@@ -15,6 +15,7 @@ Expected Outputs
 - results/figures/exp1_surface_comparison.png
 - results/figures/exp1_difference_heatmap.png
 - results/figures/exp1_summary_panel.png
+- results/figures/exp1_combined_comparison.png
 - results/tables/exp1_metrics.md
 
 Author: Wadoud (KAUST Internship)
@@ -46,6 +47,7 @@ from methods.common import (
 from visualisation import (
     plot_surface_comparison,
     plot_difference_heatmap,
+    plot_combined_comparison,
 )
 from visualisation.error_plots import plot_summary_panel, plot_scatter_comparison
 
@@ -216,6 +218,14 @@ def run_experiment(
             show=show_plots
         )
         plt.close(fig4)
+
+        # 5. Combined comparison panel (2x2: surfaces + scatter + heatmap)
+        fig5 = plot_combined_comparison(
+            result_mlmc, result_laplace, metrics,
+            save_path=str(figures_dir / "exp1_combined_comparison.png") if save_results else None,
+            show=show_plots
+        )
+        plt.close(fig5)
     
     # Save metrics to markdown
     if save_results:
