@@ -309,19 +309,19 @@ def create_5d_params(r=0.05, base_sigma=0.15, T=0.5, seed=42) -> ProblemParamete
 def create_10d_params(r=0.05, base_sigma=0.125, T=0.5, seed=42) -> ProblemParameters:
     """
     Create parameters for a 10D Black-Scholes test case.
-    
+
     Based on the paper's Section 3.5.3 (10-to-1 dimensional example).
-    
+
     Returns
     -------
     ProblemParameters
         10D problem configuration
     """
     d = 10
-    
+
     # Uniform volatilities
     sigma = base_sigma * np.ones(d)
-    
+
     # Correlation matrix from paper's Equation 58
     corr_matrix = np.array([
         [1.0,   0.2,   0.2,   0.35,  0.2,   0.25,  0.2,   0.2,   0.3,   0.2  ],
@@ -335,7 +335,7 @@ def create_10d_params(r=0.05, base_sigma=0.125, T=0.5, seed=42) -> ProblemParame
         [0.3,   0.2,   0.45,  0.425, 0.5,   0.35,  0.2,   0.2,   1.0,   0.2  ],
         [0.2,   0.45,  0.2,   0.2,   0.2,   0.2,   0.2,  -0.1,   0.2,   1.0  ]
     ])
-    
+
     return ProblemParameters(
         r=r,
         sigma=sigma,
@@ -344,6 +344,75 @@ def create_10d_params(r=0.05, base_sigma=0.125, T=0.5, seed=42) -> ProblemParame
         x0=100.0 * np.ones(d),
         T=T,
         K=1000.0,  # d=10 means basket ≈ 1000
+        random_seed=seed
+    )
+
+
+def create_nd_params(d: int, r=0.05, base_sigma=0.15, rho=0.5, T=0.5,
+                     seed=42) -> ProblemParameters:
+    """
+    Create parameters for an arbitrary d-dimensional Black-Scholes test case.
+
+    This function generates consistent parameters for any dimension, using:
+    - Toeplitz-like correlation matrix: corr[i,j] = rho^|i-j| (guaranteed positive definite)
+    - Varying volatilities around base_sigma
+    - At-the-money strike (K = 100 * d)
+
+    Parameters
+    ----------
+    d : int
+        Number of assets in the basket
+    r : float
+        Risk-free rate
+    base_sigma : float
+        Base volatility level. Individual asset volatilities will vary
+        around this value by ±20%
+    rho : float
+        Base correlation parameter. Correlation between assets i and j
+        is rho^|i-j|, ensuring positive definiteness
+    T : float
+        Maturity
+    seed : int
+        Random seed
+
+    Returns
+    -------
+    ProblemParameters
+        d-dimensional problem configuration
+
+    Examples
+    --------
+    >>> params = create_nd_params(7)  # 7-asset basket
+    >>> params.d
+    7
+    >>> params.S0
+    700.0
+    """
+    if d < 1:
+        raise ValueError(f"Dimension d must be >= 1, got {d}")
+
+    # Generate varying volatilities around base_sigma
+    # Pattern: alternate between slightly higher and lower values
+    # This creates realistic heterogeneity across assets
+    np.random.seed(seed)
+    sigma_multipliers = 0.8 + 0.4 * np.random.rand(d)  # Range [0.8, 1.2]
+    sigma = base_sigma * sigma_multipliers
+
+    # Toeplitz-like correlation matrix: corr[i,j] = rho^|i-j|
+    # This is always positive definite for |rho| < 1
+    corr_matrix = np.zeros((d, d))
+    for i in range(d):
+        for j in range(d):
+            corr_matrix[i, j] = rho ** abs(i - j)
+
+    return ProblemParameters(
+        r=r,
+        sigma=sigma,
+        corr_matrix=corr_matrix,
+        P1=np.ones(d),
+        x0=100.0 * np.ones(d),
+        T=T,
+        K=100.0 * d,  # At-the-money: K = S0 = 100*d
         random_seed=seed
     )
 

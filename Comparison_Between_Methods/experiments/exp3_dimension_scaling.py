@@ -40,6 +40,7 @@ from config import (
     create_2d_params,
     create_5d_params,
     create_10d_params,
+    create_nd_params,
 )
 from methods.mlmc_ot_estimator import estimate_volatility_mlmc, estimate_domain
 from methods.laplace_wrapper import estimate_volatility_laplace
@@ -96,33 +97,35 @@ def run_experiment(
         print()
     
     # Create parameter sets for each dimension
+    # Use paper-specific parameters where available, otherwise use generic
     param_creators = {
         2: create_2d_params,
-        3: lambda: DEFAULT_PARAMS.copy(),  # Default is 3D
+        3: lambda: DEFAULT_PARAMS.copy(),  # Default is 3D (paper's Eq. 56)
         5: create_5d_params,
-        10: create_10d_params,
+        10: create_10d_params,  # Paper's Eq. 58
     }
-    
+
     # Storage for results
     mlmc_times = []
     laplace_times = []
     l2_disagreements = []
     linf_disagreements = []
     all_results = {}
-    
+
     for dim in dimensions:
         if verbose:
             print("-" * 50)
             print(f"Testing d = {dim} assets")
             print("-" * 50)
-        
+
         # Get parameters for this dimension
+        # Use paper-specific params if available, otherwise use generic
         if dim in param_creators:
             params = param_creators[dim]()
         else:
             if verbose:
-                print(f"  Warning: No predefined parameters for d={dim}, skipping")
-            continue
+                print(f"  Using generic parameters for d={dim}")
+            params = create_nd_params(dim)
         
         if verbose:
             print(f"  S0 = {params.S0:.1f}, K = {params.K:.1f}")

@@ -166,7 +166,20 @@ This document presents the diagnostic plots from Experiment 2, explaining the ma
 
 ### Analysis
 
-*[To be completed]*
+### Left Panel: Standard Error vs Number of Runs
+
+- Observed SE (blue) follows theoretical 1/√n curve (red dashed) closely
+- Starts at ~2×10⁻³ for n = 2, drops to ~5×10⁻⁴ by n = 20
+- Small bump around n = 7–8 (normal statistical fluctuation)
+- **Interpretation:** Across-run uncertainty behaves exactly as theory predicts
+
+### Right Panel: Relative SE Heatmap
+
+- Highest uncertainty (0.14–0.16%) at low basket values (S ≈ 240) and late times (t → 0.5)
+- Lowest uncertainty (< 0.02%) at high basket values (S > 380)
+- Pattern matches where Monte Carlo sampling is sparse (tails of distribution)
+- **Interpretation:** Uncertainty is spatially heterogeneous but everywhere < 0.2%
+
 
 ---
 
@@ -206,7 +219,21 @@ This document presents the diagnostic plots from Experiment 2, explaining the ma
 
 ### Analysis
 
-*[To be completed]*
+### Left Panel: Pointwise Comparison
+
+- Points lie almost perfectly on the y = x line
+- Correlation = 1.0000
+- L² disagreement = 0.0018 (0.18%)
+- Range spans b̄² from ~750 to ~2800
+- **Interpretation:** Methods agree almost perfectly across entire surface
+
+### Right Panel: Difference Heatmap (MLMC − Laplace)
+
+- Systematic pattern: MLMC slightly lower at high S (blue, −10 to −15)
+- MLMC slightly higher at low S, late t (red, +10 to +15)
+- Differences are ~±15 on values of ~750–2800 (i.e., ~0.5–2% relative)
+- **Interpretation:** Small systematic bias exists but is spatially structured, not random noise
+
 
 ---
 
@@ -238,7 +265,24 @@ This document presents the diagnostic plots from Experiment 2, explaining the ma
 
 ### Analysis
 
-*[To be completed]*
+- Starts high (~6×10⁻³) with just 1 run
+- Settles to ~1.5–1.8×10⁻³ after ~12 runs
+- Final value: 0.0018
+- Oscillations in early runs (n < 10) are normal statistical variation
+- **Interpretation:** Disagreement stabilises quickly; 20 runs is sufficient for reliable estimate
+
+---
+
+### The α Warning Explained
+
+The weak convergence rate α = −0.06 is flagged as a warning, but this is actually a sign of success rather than failure:
+
+- Level 0 captures essentially all the signal (~1350)
+- Levels 1–3 are tiny corrections hovering near the noise floor (~0.06–0.13)
+- When fitting a line through flat data, the slope is meaningless
+- **The method has converged by level 1**, leaving nothing for finer levels to improve
+
+
 
 ---
 
