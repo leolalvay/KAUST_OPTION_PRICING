@@ -291,7 +291,7 @@ My stress testing has identified a genuine gap in the literature: **Laplace appr
 
 ### 7.4 Final Thought
 
-If Bayer, Häppölä, and Tempone, with all their expertise in this area, concluded that "there is no simple and practical way to control" the Laplace approximation error, then I'm certainly not going to crack that problem. What I *can* do is characterise the behaviour empirically and compare it to the new and improved MLMC method we have been working on. That's the realistic goal for this project. Now, I believe I have spent enough time on Laplace. 
+If Bayer, Häppölä, and Rául Tempone, with all their expertise in this area, concluded that "there is no simple and practical way to control" the Laplace approximation error, then I'm certainly not going to crack that problem. What I *can* do is characterise the behaviour empirically and compare it to the new and improved MLMC method we have been working on. That's the realistic goal for this project. Now, I believe I have spent enough time on Laplace. 
 
 ---
 
