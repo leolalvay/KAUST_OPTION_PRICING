@@ -36,6 +36,8 @@ $$Y = \frac{1}{M_0} \sum_{n=1}^{M_0} P_0^{(0,n)} + \sum_{\ell=1}^{L} \frac{1}{M_
 
 The notation $(\ell, n)$ means "the $n$-th sample at level $\ell$". Crucially, the fine path $P_\ell^{(\ell,n)}$ and coarse path $P_{\ell-1}^{(\ell,n)}$ are **coupled** — they use the same underlying Brownian increments. This coupling is what makes their difference have small variance.
 
+Where $M_\ell$ is the number of samples at level $\ell$.
+
 ### 2.3 What is $M_\ell$ and Why Do We Choose It?
 
 Here's where things get interesting. There are **two different contexts** for choosing $M_\ell$:
