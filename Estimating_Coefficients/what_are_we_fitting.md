@@ -316,4 +316,4 @@ $$\frac{\partial V}{\partial t} + \frac{1}{2} \bar{b}^2(t, S) \cdot S^2 \frac{\p
 
 ---
 
-*Document created for supervisor clarification — Wadoud Charbak, January 2025*
+*Document created for to clarify my conversation with Erik*
