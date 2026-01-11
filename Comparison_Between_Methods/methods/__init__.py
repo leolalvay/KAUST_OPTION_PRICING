@@ -20,11 +20,38 @@ from .common import (
 from .mlmc_ot_estimator import estimate_volatility_mlmc
 from .laplace_wrapper import estimate_volatility_laplace
 
+
+# Import cost metrics utilities
+from .cost_metrics import (
+    CostMetrics,
+    CostProfiler,
+    profile_function,
+    count_function_calls,
+    single_threaded,
+    set_threading,
+    compare_methods,
+    print_comparison_table,
+    add_cost_metrics_to_result,
+)
+
 __all__ = [
-    'VolatilitySurfaceResult',
-    'compute_accuracy_metrics',
-    'format_metrics_table',
-    'save_metrics_markdown',
+    # Estimation methods
     'estimate_volatility_mlmc',
     'estimate_volatility_laplace',
+    # Data structures
+    'VolatilitySurfaceResult',
+    # Agreement metrics
+    'compute_method_agreement',
+    'format_metrics_table',
+    'save_metrics_markdown',
+    # Cost metrics
+    'CostMetrics',
+    'CostProfiler',
+    'profile_function',
+    'count_function_calls',
+    'single_threaded',
+    'set_threading',
+    'compare_methods',
+    'print_comparison_table',
+    'add_cost_metrics_to_result',
 ]
