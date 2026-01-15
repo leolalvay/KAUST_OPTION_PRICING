@@ -197,8 +197,11 @@ def compute_method_agreement(
     mean_surface = (mlmc_valid + laplace_valid) / 2
     l2_error = np.sqrt(np.mean(diff ** 2))
     l2_norm = np.sqrt(np.mean(mean_surface ** 2))
-    l2_relative = l2_error / l2_norm if l2_norm > 0 else np.inf
     
+    # Blended error: threshold prevents blow-up when surface values are small
+    epsilon = 0.1 * l2_norm  # 1% of the norm as threshold
+    l2_relative = l2_error / (l2_norm + epsilon)
+        
     # L-infinity error
     linf_error = np.max(np.abs(diff))
     
@@ -250,6 +253,7 @@ def compute_method_agreement(
         "correlation": correlation,
         "pointwise_relative_disagreement": pointwise,
         "valid_fraction": valid_fraction,
+        "l2_absolute": l2_error,
     }
 
 
