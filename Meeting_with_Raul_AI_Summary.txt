@@ -1,0 +1,66 @@
+01-12 Weekly Meeting: Multilevel Regression, Optimal Transport, and American Option Pricing Backend
+Date Time: 2026-01-12 13:14:04
+Location: [Insert Location]
+Instructor: Raúl, Speaker 2, Speaker 4 (Sebastian), [Insert Name]
+📝 Summary
+On 2026-01-12, the team presented and debated progress on efficient American option pricing back-end methods, contrasting a Laplace-based baseline with a multilevel functional regression framework that leverages Markovian projection and optimal transport. Over three months, the codebase was refactored and documented, bugs were fixed, and a comparison framework reproduced the Laplace paper’s results to ~95% accuracy without access to the original code. Stress tests, performance analyses, and revised cost metrics were conducted, including optimal sample allocation studies and memory profiling.
+Methodologically, Raúl clarified the approach is not classical MLMC: it relies on functional approximation and projection rather than solely telescopic expectation decompositions with standard couplings. The core idea is to approximate quantities like PB or PB² as functions of a low-dimensional projection S = p⋅x via Markovian projection, breaking the curse of dimensionality and enabling PDE-based optimal control. A key challenge is coefficient dependence (notably the volatility term b) on full paths, limiting direct application of transport maps when coefficients are not functions of p⋅x alone. Slides will be updated to explicitly tie X and S and correct the transport minimization formulation.
+Across levels, a central difficulty is that PB_L − PB_{L−1} is evaluated on different discretizations x_L vs x_{L−1}. To avoid duplicating dimensionality, the team proposed transport maps that align path distributions across levels so differences can be expressed in terms of a single low-dimensional variable. Raúl’s convergence intuition supports identity-plus-small-correction mappings as Δt → 0; after projection to 1D, the optimal transport is given by inverse CDFs, enabling explicit couplings without high-dimensional maps. Empirically, Gaussian Brenier-style couplings yielded strong variance reduction and stability versus standard random-number aggregation, though a precise variance definition and formal integration of optimal transport into the problem statement were requested.
+Comparative experiments examined surface agreement (PB²), convergence and uncertainty, scaling and timing, PDE accuracy, and parameter sensitivity. Results showed near-identical surfaces under verification, orders-of-magnitude runtime improvements from multilevel telescoping (many cheap coarse steps, fewer fine steps), and matched PDE solutions with minor sign-changing error behavior. Memory profiling revealed a quadratic bottleneck from dense d×d covariance/Gramian structures in regression; mitigations include 1D transport maps, sparsity, or H-matrix representations. Parameter studies highlighted inflated relative errors at low volatility and short maturity due to small denominators; a blended absolute-relative error metric with a monetary threshold was recommended.
+Stress tests in high dimensions (up to 15) demonstrated MLMC-style multilevel regression stability where Laplace often failed (non–positive-definite Hessians producing NaNs), attributed to Laplace’s pointwise nature versus MLMC’s globally defined regressions that safely extrapolate over time and basket values. Sample allocation for stable least-squares regression followed conservative quadratic scaling with respect to subspace dimension, grounded in Gramian condition numbers and large-deviation results; experiments with constants C=5, 80, 150 yielded similar volatility surfaces, suggesting robustness and potential over-allocation. The team emphasized verification (code/results vs. math) over validation (vs. empirical reality), clarified log-transform Gaussianization is model-dependent (valid under Black–Scholes), and discussed terminology updates to reflect “multilevel regression” rather than MLMC/MLNC.
+Implementation notes include documenting coupling strategies (standard aggregation vs. Gaussian/Brenier maps), refactoring for reproducibility, preparing notebooks, and integrating formal mathematical derivations (from GitHub PDFs/markdowns) into slides. Stability diagnostics will report condition numbers of AᵀA; accuracy is governed by subspace choice once stability is ensured, with minimal runtime differences across regularizations observed so far. Future work targets a 1D transport demonstrator reducing memory without sacrificing accuracy or effort, potential GPU/JAX acceleration once methods are controlled, and preparing a manuscript. Scheduling and collaboration logistics were noted (Raúl’s travel window, post-Ramadan availability, VPN access), with plans for continued coordination and possible co-tutorials.
+🔖 Knowledge Points
+1. Project Scope, Refactoring, and Comparison Framework
+Full review, refactor, and documentation of Amelie’s code; numerous bug fixes and workflow notes for reproducibility.
+Built a comparison framework replicating Laplace-method results to ~95% without original code; enabled stress testing and quantitative analysis of both methods.
+Revised cost metrics beyond wall-clock timing; studied optimal sample allocation strategies.
+2. Methodological Positioning: Multilevel Functional Regression with Optimal Transport
+Distinct from classical MLMC; relies on functional approximation and projection (regression over function spaces for PB/PB²) with transport-based couplings.
+Telescopic decomposition remains useful, but couplings are designed to enable low-dimensional functional inputs across levels.
+3. Markovian Projection and Dimensionality
+Map D-dimensional assets to S = p⋅x to enable tractable PDE solving; preserves essential dynamics under conditions.
+Coefficient dependence issues: b may depend on full paths, complicating transport on S; c behaves differently.
+Slides require an explicit X→S link and corrected transport-minimization definitions.
+4. Coupling Strategies and Optimal Transport
+Standard coupling: aggregate fine-level increments to produce coarse increments; heuristic and not provably optimal.
+Gaussian/Brenier optimal transport: closed-form for Gaussian measures; improved variance reduction and stability observed.
+Raúl requested formal variance definitions and problem setup showing where transport enters.
+5. Multilevel Decomposition and Path Alignment
+PB²_L = PB²_0 + Σ (PB²_l − PB²_{l−1}); differences depend on x_l vs x_{l−1}, risking dimensional blow-up.
+Use transport maps to align distributions so differences can be approximated as functions of a single low-dimensional variable (S), benefiting stability and regression.
+6. Convergence Intuition and 1D Transport Maps
+As Δt → 0, xl ≈ xl−1 plus small random corrections; projections preserve or reduce differences.
+In 1D, optimal transport is inverse CDF; enables explicit mapping Pxl−1 → Pxl, rewriting multilevel least-squares in single-level variables compatible with PDE inputs.
+7. Verification, Gaussianization, and Bias
+Verification vs. validation clarified; current work verifies methods against models.
+Log-transform Gaussianization valid under Black–Scholes (log-normal) but not generally; projection order and log introduce bias akin to Laplace approximations.
+8. Experiments: Agreement, Convergence, Performance, and PDE Accuracy
+Surface agreement nearly perfect with minor deviations; statistical uncertainty followed 1/√n; clarified metrics and axes needed.
+MLMC-style regression faster by orders of magnitude due to telescoping; Laplace deterministic vs. stochastic multilevel approach.
+PDE solutions matched across methods; tiny discrepancies with sign changes observed; stress tests up to d=15 maintained agreement.
+9. Memory Bottlenecks and Mitigations
+Quadratic memory growth from dense d×d covariance/Gramian matrices in regression.
+Mitigation via 1D transport, sparsity, or H-matrix techniques; remove excess memory overhead in mapping pipelines.
+10. Sample Allocation, Stability, and Condition Numbers
+Stability requires samples scaling ∝ (subspace dimension)² under conservative assumptions; at least basis dimension samples are necessary.
+Constants C tested (5, 80, 150) produced similar surfaces; suggests robust performance and room for optimization.
+Condition number of AᵀA central to diagnosing numerical stability; accuracy tied to subspace richness, not raw sample counts once stable.
+11. High-Dimensional Behavior: Laplace vs. Multilevel Regression
+Laplace breaks in higher dimensions (non-PD Hessians, NaNs) due to pointwise formulation.
+Multilevel regression produces global approximations enabling safe extrapolation; Gaussian map coupling improved robustness at aggressive parameters.
+Plotting should mark sampled domain vs. extrapolation regions to contextualize stability.
+12. Implementation, Tools, and Collaboration
+Documentation, GitHub references, reproducible notebooks planned; define coupling variants precisely.
+Consider GPU/JAX after method control; maintain VPN access; aim for manuscript and potential co-tutorials.
+Terminology updates: rename MLNC to “multilevel regression”; align slides and code with formal formulations.
+📚 Assignments
+Update slides to state S = p⋅X explicitly and correct transport minimization (min over T with xf − T(xc)); integrate formal formulations from GitHub.
+Define and measure variance for coupled path differences across levels; standardize disagreement and convergence plot axes.
+Construct and validate 1D transport maps (inverse CDF) linking Pxl to Pxl−1; compose T_{0→l} to rewrite multilevel approximations in single-level variables; test PDE integration.
+Perform least-squares fitting using single-level variables via transported data; compare against multilevel pathwise approximations in optimal control outcomes.
+Profile memory and replace dense d×d structures with 1D transport, sparse, or H-matrix representations; optimize mapping pipeline memory.
+Document standard vs. Gaussian/Brenier coupling definitions and implementations; ensure reproducible comparisons.
+Extend accuracy and scaling tests to higher dimensions (e.g., d=10, d=100); report runtime, memory, errors, and sign-change effects.
+Implement blended error metrics with monetary thresholds; re-plot volatility and maturity sensitivity using blended metrics.
+Analyze Gramian condition numbers across allocation rules (quadratic, linear, M^1.5, M·log, M·log²) and constants (C=5, 80, 150); assess optimal sampling measures.
+Prepare reproducible notebooks demonstrating ~95% Laplace replication and improvements from multilevel regression with transport and projection; draft manuscript focused on stability, subspace-driven accuracy, and 1D transport results.
