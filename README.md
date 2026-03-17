@@ -1,2 +1,2 @@
-# KAUST_QR_P1
-Project 1 for my 2025 KAUST Quantitative Research Internship
+# KAUST_OPTION_PRICING
+American Option Pricing methods using Markovian Projections and Muiltilever Monte Carlo Techniques.
