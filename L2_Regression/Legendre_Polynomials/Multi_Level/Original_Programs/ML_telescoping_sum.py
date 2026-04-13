@@ -232,10 +232,17 @@ def mlmc_l(x0, T, h0, l, r, cov_mat, vol, max_deg, P1, s_min0, s_max0, C=80):
     
     # Solve for coefficients
     c = fit_local_vol(D, psi)
+
+    pairs_max = tot_degree_poly(max_deg)
+    index_map = {pair: idx for idx, pair in enumerate(pairs_max)}
+
+    c_padded = np.zeros(len(pairs_max))
+    for k, pair in enumerate(pairs):
+        c_padded[index_map[pair]] = c[k]
     
     # Pad to maximum basis size (so all levels can be summed)
-    c_padded = np.zeros(dim_max)
-    c_padded[:c.shape[0]] = c
+    #c_padded = np.zeros(dim_max)
+    #c_padded[:c.shape[0]] = c
     
     return c_padded
 
