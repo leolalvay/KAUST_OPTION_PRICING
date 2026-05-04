@@ -200,7 +200,7 @@ def make_b_bar(c, pairs, t_mean, t_std, s_mean, s_std):
     return b_bar
 
 
-def plot_localvol(b_bar, paths, P1, t, K=40, L=150):
+def plot_localvol(b_bar, paths, P1, t, K=40, L=150,save_plot = False):
     """
     Plot 3D wireframe of projected volatility surface.
     
